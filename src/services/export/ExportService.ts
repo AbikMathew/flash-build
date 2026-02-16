@@ -21,7 +21,10 @@ export class ExportService {
         const a = document.createElement('a');
         a.href = url;
         a.download = `${metadata.name.toLowerCase().replace(/\s+/g, '-')}.zip`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
     ResizableHandle,
     ResizablePanel,
@@ -22,12 +22,13 @@ import FileExplorer from '@/components/workspace/FileExplorer';
 import CodeEditor from '@/components/workspace/CodeEditor';
 import PreviewPane from '@/components/workspace/PreviewPane';
 import GenerationStatus from '@/components/generation/GenerationStatus';
+import SettingsModal from '@/components/settings/SettingsModal';
 
 import { useProjectStore } from '@/store/useProjectStore';
-import { createGenerator } from '@/services/generator';
+import { createGenerator, getPreferredGeneratorType } from '@/services/generator';
 import { PreviewService } from '@/services/preview/PreviewService';
 import { ExportService } from '@/services/export/ExportService';
-import { UploadedImage, WorkspaceView } from '@/types';
+import { UploadedImage, WorkspaceView, AIConfig } from '@/types';
 
 export default function AppWorkspace() {
     const {
@@ -55,6 +56,7 @@ export default function AppWorkspace() {
 
     const activeFile = files.find((f) => f.path === activeFilePath) || null;
     const isGenerating = status === 'generating';
+    const [, setAiConfig] = useState<AIConfig | null>(null);
 
     const handleGenerate = useCallback(
         async (prompt: string, images: UploadedImage[], urls: string[]) => {
@@ -63,7 +65,8 @@ export default function AppWorkspace() {
             setFiles([]);
             setPreviewHtml('');
 
-            const generator = createGenerator('mock');
+            const genType = getPreferredGeneratorType();
+            const generator = createGenerator(genType);
             const collectedFiles: typeof files = [];
 
             try {
@@ -176,6 +179,9 @@ export default function AppWorkspace() {
                         <Download className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Export</span>
                     </Button>
+
+                    {/* Settings */}
+                    <SettingsModal onConfigChange={setAiConfig} />
                 </div>
             </header>
 

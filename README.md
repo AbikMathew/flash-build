@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FlashBuild ⚡
+
+AI-powered web app generator. Describe what you want → get a working app with code + live preview.
+
+## Features
+
+- 🎨 **Describe anything** — natural language prompt to HTML/CSS/JS
+- 📸 **Screenshot to code** — upload a screenshot, get matching code
+- 🔗 **URL analysis** — paste a URL to generate a similar app
+- ✏️ **Monaco editor** — edit generated code with full syntax highlighting
+- 👁️ **Live preview** — real-time iframe preview with viewport toggles
+- 📦 **Export** — download the entire project as a ZIP
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+# Install
+npm install
+
+# Dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Build
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## AI Configuration (BYOK)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Click **Settings** in the header to configure your API key:
 
-## Learn More
+| Provider | Model | Get Key |
+|----------|-------|---------|
+| Anthropic | Claude Sonnet 4 | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| OpenAI | GPT-4o | [platform.openai.com](https://platform.openai.com/api-keys) |
 
-To learn more about Next.js, take a look at the following resources:
+Your key is stored in browser localStorage and passed to the AI provider through our API route. Cost: ~$0.02–$0.05 per generation.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Without an API key, the app uses a **mock generator** with pre-built templates.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Tech Stack
 
-## Deploy on Vercel
+- **Next.js 15** (App Router)
+- **TypeScript**
+- **Tailwind CSS v4**
+- **shadcn/ui**
+- **Monaco Editor**
+- **Zustand** (state)
+- **JSZip** (export)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploy to Vercel
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
+
+```bash
+# Or via CLI
+npm i -g vercel
+vercel
+```
+
+## Architecture
+
+```
+src/
+├── app/
+│   ├── api/generate/     # AI proxy route (Claude/GPT-4o)
+│   └── page.tsx          # Main entry
+├── components/
+│   ├── input/            # Prompt, image upload, URL input
+│   ├── workspace/        # Editor, preview, file explorer
+│   ├── generation/       # Progress status
+│   ├── settings/         # API key config modal
+│   └── layout/           # AppWorkspace orchestrator
+├── services/
+│   ├── generator/        # IGeneratorService → Mock + AI adapters
+│   ├── preview/          # Bundles files → iframe HTML
+│   └── export/           # ZIP download
+├── store/                # Zustand project state
+└── types/                # Shared TypeScript types
+```

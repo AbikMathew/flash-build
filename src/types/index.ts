@@ -71,3 +71,30 @@ export type ViewportSize = 'desktop' | 'tablet' | 'mobile';
 
 /** View mode for the workspace */
 export type WorkspaceView = 'code' | 'preview' | 'split';
+
+/** Supported AI providers */
+export type AIProvider = 'anthropic' | 'openai';
+
+/** AI configuration for BYOK */
+export interface AIConfig {
+  provider: AIProvider;
+  apiKey: string;
+  model?: string;
+}
+
+/** Request body for the /api/generate endpoint */
+export interface GenerateAPIRequest {
+  prompt: string;
+  images: { name: string; base64: string; mimeType: string }[];
+  urls: string[];
+  config: AIConfig;
+}
+
+/** Streamed chunk from the /api/generate endpoint */
+export interface GenerateAPIChunk {
+  type: 'event' | 'file' | 'metadata' | 'error' | 'done';
+  event?: GenerationEvent;
+  file?: ProjectFile;
+  metadata?: ProjectMetadata;
+  error?: string;
+}
