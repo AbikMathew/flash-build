@@ -23,6 +23,11 @@ interface InputPanelProps {
     isGenerating: boolean;
 }
 
+const MAX_PROMPT_LENGTH = 5000;
+const MAX_IMAGES = 5;
+const MAX_IMAGE_SIZE_MB = 5;
+const MAX_URLS = 3;
+
 export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps) {
     const [prompt, setPrompt] = useState('');
     const [images, setImages] = useState<UploadedImage[]>([]);
@@ -33,14 +38,26 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
     const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const fileList = e.target.files;
         if (!fileList) return;
-        const newImages: UploadedImage[] = Array.from(fileList).map(file => ({
+
+        const remaining = MAX_IMAGES - images.length;
+        const filesToAdd = Array.from(fileList).slice(0, remaining);
+
+        const validFiles = filesToAdd.filter(file => {
+            if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+                alert(`${file.name} exceeds ${MAX_IMAGE_SIZE_MB}MB limit`);
+                return false;
+            }
+            return true;
+        });
+
+        const newImages: UploadedImage[] = validFiles.map(file => ({
             id: crypto.randomUUID(),
             file,
             previewUrl: URL.createObjectURL(file),
             name: file.name,
         }));
         setImages(prev => [...prev, ...newImages]);
-    }, []);
+    }, [images.length]);
 
     const removeImage = (id: string) => {
         setImages(prev => {
@@ -51,6 +68,7 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
     };
 
     const addUrl = () => {
+        if (urls.length >= MAX_URLS) return;
         const trimmed = urlInput.trim();
         if (trimmed && !urls.includes(trimmed)) {
             setUrls(prev => [...prev, trimmed]);
@@ -103,9 +121,18 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
                             <Textarea
                                 placeholder="e.g. Build a modern dashboard with analytics charts, user stats, and a sidebar navigation..."
                                 value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                className="min-h-[120px] resize-none bg-background/50 border-border/50 focus:border-purple-500/50 transition-colors text-sm"
+                                onChange={(e) => {
+                                    if (e.target.value.length <= MAX_PROMPT_LENGTH) {
+                                        setPrompt(e.target.value);
+                                    }
+                                }}
+                                className="min-h-[120px] max-h-[200px] resize-none overflow-y-auto bg-background/50 border-border/50 focus:border-purple-500/50 transition-colors text-sm"
                             />
+                            <div className="flex justify-end mt-1">
+                                <span className={`text-xs ${prompt.length > MAX_PROMPT_LENGTH * 0.9 ? 'text-yellow-400' : 'text-muted-foreground'}`}>
+                                    {prompt.length}/{MAX_PROMPT_LENGTH}
+                                </span>
+                            </div>
                         </div>
 
                         {/* Image Upload Section */}
@@ -114,17 +141,24 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
                                 <ImageIcon className="w-3.5 h-3.5" />
                                 Screenshots / Reference Images
                             </label>
-                            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-border/50 rounded-lg cursor-pointer hover:border-purple-500/50 hover:bg-purple-500/5 transition-all">
-                                <Upload className="w-5 h-5 text-muted-foreground mb-1" />
-                                <span className="text-xs text-muted-foreground">Click or drag to upload</span>
-                                <input
-                                    type="file"
-                                    className="hidden"
-                                    accept="image/*"
-                                    multiple
-                                    onChange={handleImageUpload}
-                                />
-                            </label>
+                            {images.length < MAX_IMAGES ? (
+                                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-border/50 rounded-lg cursor-pointer hover:border-purple-500/50 hover:bg-purple-500/5 transition-all">
+                                    <Upload className="w-5 h-5 text-muted-foreground mb-1" />
+                                    <span className="text-xs text-muted-foreground">Click or drag to upload</span>
+                                    <span className="text-xs text-muted-foreground/60">{images.length}/{MAX_IMAGES} · Max {MAX_IMAGE_SIZE_MB}MB each</span>
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/png,image/jpeg,image/webp"
+                                        multiple
+                                        onChange={handleImageUpload}
+                                    />
+                                </label>
+                            ) : (
+                                <div className="flex items-center justify-center w-full h-16 border-2 border-dashed border-yellow-500/30 rounded-lg bg-yellow-500/5">
+                                    <span className="text-xs text-yellow-400">Maximum {MAX_IMAGES} images reached</span>
+                                </div>
+                            )}
                             {images.length > 0 && (
                                 <div className="flex flex-wrap gap-2 mt-2">
                                     {images.map(img => (
@@ -162,16 +196,21 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
                                     onChange={(e) => setUrlInput(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && addUrl()}
                                     className="bg-background/50 border-border/50 text-sm"
+                                    disabled={urls.length >= MAX_URLS}
                                 />
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={addUrl}
                                     className="shrink-0"
+                                    disabled={urls.length >= MAX_URLS}
                                 >
                                     <Link2 className="w-3.5 h-3.5" />
                                 </Button>
                             </div>
+                            {urls.length > 0 && (
+                                <span className="text-xs text-muted-foreground/60">{urls.length}/{MAX_URLS} URLs</span>
+                            )}
                             {urls.length > 0 && (
                                 <div className="flex flex-col gap-1.5 mt-2">
                                     {urls.map(url => (
