@@ -83,14 +83,44 @@ export class AIGenerator implements IGeneratorService {
             })
         );
 
+        // Scrape URLs if present
+        let scrapedContext = '';
+        if (input.urls.length > 0) {
+            yield {
+                type: 'analyzing',
+                message: `Scraping ${input.urls.length} reference URL${input.urls.length > 1 ? 's' : ''}...`,
+                progress: 5,
+                timestamp: new Date(),
+            };
+
+            for (const url of input.urls) {
+                try {
+                    const scrapeRes = await fetch('/api/scrape', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url }),
+                    });
+
+                    if (scrapeRes.ok) {
+                        const data = await scrapeRes.json();
+                        scrapedContext += `\n\n--- REFERENCE URL: ${url} ---\nTitle: ${data.title}\nDescription: ${data.description}\nContent: ${data.content}\n--- END REFERENCE ---\n`;
+                    } else {
+                        console.warn(`Failed to scrape ${url}`);
+                    }
+                } catch (err) {
+                    console.error(`Error scraping ${url}:`, err);
+                }
+            }
+        }
+
         // Call our API route
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                prompt: input.prompt,
+                prompt: input.prompt + scrapedContext,
                 images,
-                urls: input.urls,
+                urls: input.urls, // Still pass URLs for reference
                 config: this.config,
             }),
         });

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FileCode, FileText, FileJson, Image, ChevronRight, Folder } from 'lucide-react';
+import { FileCode, FileText, FileJson, Image, ChevronRight, Folder, Download } from 'lucide-react';
 import { ProjectFile } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -102,7 +102,7 @@ function TreeNode({
     return (
         <button
             className={cn(
-                'flex items-center gap-1.5 w-full px-2 py-1 text-xs transition-colors',
+                'group flex items-center gap-1.5 w-full px-2 py-1 text-xs transition-colors',
                 activeFilePath === node.path
                     ? 'bg-accent text-accent-foreground'
                     : 'text-foreground/80 hover:bg-accent/50'
@@ -111,7 +111,29 @@ function TreeNode({
             onClick={() => onSelectFile(node.path)}
         >
             {getFileIcon(node.path)}
-            <span>{node.name}</span>
+            <span className="truncate flex-1 text-left">{node.name}</span>
+            {node.file && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (node.file) {
+                            const blob = new Blob([node.file.content], { type: 'text/plain' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = node.file.path.split('/').pop() || 'file';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-background rounded transition-all text-muted-foreground hover:text-foreground"
+                    title="Download file"
+                >
+                    <Download className="w-3 h-3" />
+                </button>
+            )}
         </button>
     );
 }

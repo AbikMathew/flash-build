@@ -6,6 +6,7 @@ import {
     ResizablePanel,
     ResizablePanelGroup,
 } from '@/components/ui/resizable';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
     Download,
@@ -15,7 +16,13 @@ import {
     PanelLeftClose,
     PanelLeft,
     Zap,
+    Menu,
 } from 'lucide-react';
+import {
+    Sheet,
+    SheetContent,
+    SheetTrigger,
+} from '@/components/ui/sheet';
 
 import InputPanel from '@/components/input/InputPanel';
 import FileExplorer from '@/components/workspace/FileExplorer';
@@ -140,15 +147,24 @@ export default function AppWorkspace() {
             {/* Top Header Bar */}
             <header className="flex items-center justify-between px-4 h-12 border-b border-border bg-card/80 backdrop-blur-sm shrink-0">
                 <div className="flex items-center gap-3">
+                    {/* Mobile Menu Trigger */}
+                    <Sheet>
+                        <SheetTrigger asChild>
+                            <Button variant="ghost" size="icon" className="md:hidden">
+                                <Menu className="w-5 h-5" />
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="left" className="p-0 w-80">
+                            <InputPanel onGenerate={handleGenerate} isGenerating={isGenerating} />
+                        </SheetContent>
+                    </Sheet>
+
                     <div className="flex items-center gap-2">
                         <Zap className="w-5 h-5 text-purple-400" />
-                        <span className="font-bold text-sm tracking-tight">
+                        <span className="font-bold text-sm tracking-tight hidden sm:inline">
                             Flash<span className="text-purple-400">Build</span>
                         </span>
                     </div>
-                    <span className="text-xs text-muted-foreground hidden sm:block">
-                        AI App Generator
-                    </span>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -159,7 +175,10 @@ export default function AppWorkspace() {
                                 key={view}
                                 variant={workspaceView === view ? 'secondary' : 'ghost'}
                                 size="sm"
-                                className="h-7 px-2.5 text-xs gap-1.5"
+                                className={cn(
+                                    "h-7 px-2.5 text-xs gap-1.5",
+                                    view === 'split' && "hidden md:flex" // Hide split view on mobile
+                                )}
                                 onClick={() => setWorkspaceView(view)}
                             >
                                 <Icon className="w-3.5 h-3.5" />
@@ -187,8 +206,8 @@ export default function AppWorkspace() {
 
             {/* Main Content */}
             <div className="flex-1 flex overflow-hidden">
-                {/* Left Panel: Input - fixed width sidebar */}
-                <div className="w-80 shrink-0 border-r border-border">
+                {/* Left Panel: Input - fixed sidebar on desktop, hidden on mobile */}
+                <div className="hidden md:block w-80 shrink-0 border-r border-border">
                     <InputPanel onGenerate={handleGenerate} isGenerating={isGenerating} />
                 </div>
 
