@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
+import Image from 'next/image';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -166,10 +167,13 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
                                             key={img.id}
                                             className="relative group rounded-md overflow-hidden border border-border"
                                         >
-                                            <img
+                                            <Image
                                                 src={img.previewUrl}
                                                 alt={img.name}
+                                                width={64}
+                                                height={64}
                                                 className="w-16 h-16 object-cover"
+                                                unoptimized
                                             />
                                             <button
                                                 onClick={() => removeImage(img.id)}

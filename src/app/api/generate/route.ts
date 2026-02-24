@@ -1,632 +1,553 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GenerateAPIRequest } from '@/types';
+import {
+  AIProvider,
+  DesignSpec,
+  ExportMode,
+  GenerateAPIRequest,
+  GenerationConstraints,
+  OutputStack,
+  PreviewRuntimeMode,
+  QualityReport,
+  QualityMode,
+  RuntimeHint,
+  ResponsiveReport,
+  PackageManifest,
+} from '@/types';
+import { DEFAULT_MODELS, getProviderLabel } from '@/services/generation/pipeline/aiClient';
+import { extractDesignSpec } from '@/services/generation/pipeline/extractDesignSpec';
+import { generateProject, GeneratedFile } from '@/services/generation/pipeline/generateProject';
+import { ingestReferences } from '@/services/generation/pipeline/ingestReferences';
+import { validateOutput } from '@/services/generation/pipeline/validateOutput';
+import { validateRuntimeBuild } from '@/services/generation/pipeline/validateRuntimeBuild';
+import { enforcePackagePolicy } from '@/services/generation/pipeline/packagePolicy';
 
-// ============================================================================
-// PHASE 1: ARCHITECT PROMPT — analyzes requirements, outputs JSON spec
-// ============================================================================
-const ARCHITECT_PROMPT = `You are the Architect agent of FlashBuild. Your job is to analyze the user's request and create a detailed application specification.
+interface NormalizedRequest extends GenerateAPIRequest {
+  outputStack: OutputStack;
+  qualityMode: QualityMode;
+  constraints: GenerationConstraints;
+  previewRuntimePreference: PreviewRuntimeMode | 'auto';
+  exportMode: ExportMode;
+}
 
-Given the user's description (and optionally screenshots/URLs), output a JSON specification for the app to be built.
+function isProvider(value: string): value is AIProvider {
+  return value === 'anthropic' || value === 'openai';
+}
 
-You MUST respond with ONLY valid JSON — no markdown, no explanation, no code fences. Just pure JSON.
-
-{
-  "appName": "Short app name",
-  "description": "One-line description of what the app does",
-  "features": [
-    {
-      "name": "Feature name",
-      "description": "What it does",
-      "interactions": ["click handler on X does Y", "form submits to Z"]
-    }
-  ],
-  "files": [
-    {
-      "path": "index.html",
-      "purpose": "Main HTML structure with all layout and semantic elements"
+function normalizeRequest(body: GenerateAPIRequest): NormalizedRequest {
+  return {
+    ...body,
+    outputStack: body.outputStack ?? 'react-tailwind',
+    qualityMode: body.qualityMode ?? 'strict_visual',
+    constraints: {
+      maxRetries: Math.max(0, Math.min(2, body.constraints?.maxRetries ?? 1)),
+      maxCostUsd: Math.max(0.05, body.constraints?.maxCostUsd ?? 0.25),
     },
-    {
-      "path": "styles.css",
-      "purpose": "All styling — theme variables, layout, components, responsive, animations"
-    },
-    {
-      "path": "app.js",
-      "purpose": "Main application logic — event handlers, state, DOM manipulation"
-    }
-  ],
-  "ui": {
-    "layout": "Description of the overall layout (sidebar + main, single page, etc.)",
-    "colorScheme": "dark/light/custom — describe the palette",
-    "keyComponents": ["list of major UI components like navbar, cards, modals, forms"]
-  },
-  "dataModel": {
-    "entities": ["list of data entities like Todo, User, Task"],
-    "persistence": "localStorage/none — how data is stored",
-    "sampleData": "Brief description of realistic sample data to include"
+    previewRuntimePreference: body.previewRuntimePreference ?? 'auto',
+    exportMode: body.exportMode ?? 'full-project',
+  };
+}
+
+function detectProjectName(spec: DesignSpec | null, prompt: string, files: GeneratedFile[]): string {
+  if (spec?.appName) return spec.appName;
+  const indexFile = files.find((file) => file.path === 'index.html');
+  if (indexFile) {
+    const titleMatch = indexFile.content.match(/<title>(.*?)<\/title>/i);
+    if (titleMatch) return titleMatch[1];
   }
+  return prompt.trim().split(/\s+/).slice(0, 4).join(' ') || 'Generated App';
 }
 
-Rules:
-1. ALWAYS include at least index.html, styles.css, and app.js
-2. For complex apps, add more files: utils.js, data.js, chart.js, router.js, etc.
-3. Every feature MUST list its specific interactions (what happens when user clicks/types/submits)
-4. Be specific about functionality — don't just say "calculator works", say "clicking number buttons appends digits, clicking operators stores operation, clicking = evaluates expression"
-5. If the user provided screenshots, describe the exact visual layout you see
-6. appName should be creative and memorable (like "TaskFlow", "CalcPro", "DataGrid")`;
-
-// ============================================================================
-// PHASE 2: BUILDER PROMPT — takes spec, generates actual code files
-// ============================================================================
-const BUILDER_PROMPT = `You are the Builder agent of FlashBuild. You receive an application specification and generate ALL the code files.
-
-## Output Format
-Output ONLY file blocks in this exact format — NO explanations, NO markdown, NO commentary:
-
----FILE: path/to/filename.ext---
-(complete file contents)
----END FILE---
-
-## CRITICAL RULES
-
-### Functionality First
-This is the MOST IMPORTANT rule. Every feature in the specification MUST be fully implemented:
-- Every button MUST have a working click handler that performs its labeled action
-- Every form MUST submit and process input data correctly
-- Every calculation MUST produce correct results
-- CRUD operations MUST work — Create, Read, Update, Delete
-- Navigation MUST work — tabs, pages, modals open/close/switch
-- Data persistence — use localStorage where specified
-- Keyboard shortcuts — Enter to submit, Escape to close modals
-- Error states — show user-friendly messages for invalid input
-
-### Visual Design
-- Modern, premium UI — gradients, shadows, rounded corners, glass effects
-- CSS custom properties for theming (--primary, --bg, --text, --accent, etc.)
-- Responsive design — works on desktop AND mobile
-- Semantic HTML5 elements
-- Smooth transitions and micro-animations
-- All interactive elements have hover/active/focus states
-- Professional typography with proper hierarchy
-- Populate with realistic sample data — NEVER use "Lorem ipsum"
-
-### Code Quality
-- Clean, well-structured JavaScript with descriptive function names
-- Event delegation where appropriate
-- No external CDN links or dependencies — everything self-contained
-- No inline styles — all styling in CSS files
-- Comments for complex logic sections
-- DRY code — extract repeated patterns into functions
-- The index.html MUST include <script> tags for ALL .js files in correct dependency order
-
-### Screenshot Replication (if screenshots provided)
-- Match the exact visual layout, spacing, colors, and typography
-- Replicate component structure, alignment, and proportions
-- Use the exact hex colors visible in the screenshot
-- Preserve the UI hierarchy and information architecture
-
-Generate ONLY the file blocks now. Follow the specification exactly.`;
-
-// ============================================================================
-// PHASE 3: REVIEWER PROMPT — validates code against spec
-// ============================================================================
-const REVIEWER_PROMPT = `You are the QA Reviewer agent of FlashBuild. You review generated code against the original specification to find issues.
-
-You will receive:
-1. The original app specification (JSON)
-2. The generated code files
-
-Your job is to check ONLY for critical functional issues:
-- Missing click handlers (buttons that do nothing)
-- Broken calculations or logic errors
-- Forms that don't submit or process data
-- Missing CRUD operations that were specified
-- JavaScript errors (undefined variables, syntax errors)
-- Missing files referenced in HTML (scripts/stylesheets linked but not generated)
-
-You MUST respond with ONLY valid JSON — no markdown, no explanation:
-
-{
-  "approved": true/false,
-  "issues": [
-    {
-      "file": "app.js",
-      "severity": "critical",
-      "description": "Calculator equals button has no event handler"
-    }
-  ],
-  "fixInstructions": "If not approved, specific instructions for what to fix in each file"
+function uniqStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-Rules:
-- Only flag CRITICAL functional issues, not style preferences
-- If code is reasonably functional (80%+ features work), approve it
-- Be concise — max 5 issues
-- If approved, issues array should be empty and fixInstructions should be empty string`;
-
-// ============================================================================
-// Shared helpers
-// ============================================================================
-
-/**
- * Build the user message from the inputs.
- * Handles text prompt, images (as base64), and URLs.
- */
-function buildUserMessage(req: GenerateAPIRequest): Array<Record<string, unknown>> {
-    const parts: Array<Record<string, unknown>> = [];
-
-    // Text prompt
-    let textContent = req.prompt;
-    if (req.urls.length > 0) {
-        textContent += `\n\nReference URLs (build something similar to these):\n${req.urls.map(u => `- ${u}`).join('\n')}`;
-    }
-    parts.push({ type: 'text', text: textContent });
-
-    // Images
-    for (const img of req.images) {
-        if (req.config.provider === 'anthropic') {
-            parts.push({
-                type: 'image',
-                source: {
-                    type: 'base64',
-                    media_type: img.mimeType,
-                    data: img.base64,
-                },
-            });
-        } else {
-            // OpenAI format
-            parts.push({
-                type: 'image_url',
-                image_url: {
-                    url: `data:${img.mimeType};base64,${img.base64}`,
-                },
-            });
-        }
-    }
-
-    return parts;
+function cloneFiles(files: GeneratedFile[]): GeneratedFile[] {
+  return files.map((file) => ({ ...file }));
 }
 
-/**
- * Generic AI call — routes to the right provider.
- */
-async function callAI(
-    provider: string,
-    apiKey: string,
-    model: string,
-    systemPrompt: string,
-    userContent: Array<Record<string, unknown>> | string,
-    maxTokens: number = 16384
-): Promise<string> {
-    // Normalize to content array
-    const userMessage: Array<Record<string, unknown>> = typeof userContent === 'string'
-        ? [{ type: 'text', text: userContent }]
-        : userContent;
-
-    if (provider === 'anthropic') {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-                model,
-                max_tokens: maxTokens,
-                system: systemPrompt,
-                messages: [{ role: 'user', content: userMessage }],
-            }),
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            throw new Error(`Anthropic API error (${response.status}): ${errorBody}`);
-        }
-
-        const data = await response.json();
-        return data.content[0].text;
-    } else {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model,
-                max_tokens: maxTokens,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userMessage },
-                ],
-            }),
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            throw new Error(`OpenAI API error (${response.status}): ${errorBody}`);
-        }
-
-        const data = await response.json();
-        return data.choices[0].message.content;
-    }
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/**
- * Parse the AI response into structured project files.
- */
-function parseFilesFromResponse(response: string): Array<{ path: string; content: string; language: string }> {
-    const files: Array<{ path: string; content: string; language: string }> = [];
-    const fileRegex = /---FILE:\s*(.+?)---\n([\s\S]*?)---END FILE---/g;
-
-    let match;
-    while ((match = fileRegex.exec(response)) !== null) {
-        const path = match[1].trim();
-        const content = match[2].trim();
-        const ext = path.split('.').pop()?.toLowerCase() || '';
-
-        const langMap: Record<string, string> = {
-            html: 'html', htm: 'html',
-            css: 'css',
-            js: 'javascript', jsx: 'javascript',
-            ts: 'typescript', tsx: 'typescript',
-            json: 'json',
-            md: 'markdown',
-        };
-
-        files.push({
-            path,
-            content,
-            language: langMap[ext] || 'plaintext',
-        });
-    }
-
-    return files;
+function mergePatchInstructions(existing: string | undefined, runtimeIssues: string[]): string | undefined {
+  const runtimeBlock = runtimeIssues.length > 0
+    ? `Fix runtime execution failures:\n${runtimeIssues.map((issue) => `- ${issue}`).join('\n')}`
+    : '';
+  return [existing?.trim() || '', runtimeBlock].filter(Boolean).join('\n\n') || undefined;
 }
 
-/**
- * Detect a project name from the spec or generated files.
- */
-function detectProjectName(spec: Record<string, unknown> | null, prompt: string, files: Array<{ path: string; content: string }>): string {
-    // Try spec first
-    if (spec && typeof spec.appName === 'string' && spec.appName) {
-        return spec.appName;
-    }
-    // Try <title> tag
-    const indexFile = files.find(f => f.path === 'index.html');
-    if (indexFile) {
-        const titleMatch = indexFile.content.match(/<title>(.*?)<\/title>/i);
-        if (titleMatch) return titleMatch[1];
-    }
-    return prompt.split(' ').slice(0, 4).join(' ');
-}
-
-/**
- * Safely parse JSON from AI response (handles code fences, extra text).
- */
-function safeParseJSON(text: string): Record<string, unknown> | null {
-    // Try direct parse first
-    try {
-        return JSON.parse(text);
-    } catch {
-        // Strip markdown code fences
-        const stripped = text.replace(/```(?:json)?\n?/g, '').replace(/```\s*$/g, '').trim();
-        try {
-            return JSON.parse(stripped);
-        } catch {
-            // Try to extract JSON object
-            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                try {
-                    return JSON.parse(jsonMatch[0]);
-                } catch {
-                    return null;
-                }
-            }
-            return null;
-        }
-    }
-}
-
-// ============================================================================
-// POST /api/generate — 3-Phase Pipeline
-// ============================================================================
 export async function POST(request: NextRequest) {
-    try {
-        const body: GenerateAPIRequest = await request.json();
+  try {
+    const body = (await request.json()) as GenerateAPIRequest;
 
-        // Validate
-        if (!body.config?.apiKey) {
-            return NextResponse.json({ error: 'API key is required' }, { status: 400 });
-        }
-        if (!body.prompt?.trim()) {
-            return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
-        }
-
-        const { provider, apiKey, model } = body.config;
-        const providerName = provider === 'anthropic' ? 'Claude' : 'GPT-4o';
-
-        // Default models
-        const defaultModels: Record<string, string> = {
-            anthropic: 'claude-sonnet-4-20250514',
-            openai: 'gpt-4o',
-        };
-        const selectedModel = model || defaultModels[provider];
-
-        // Build the user message (with images)
-        const userMessage = buildUserMessage(body);
-
-        // Stream response as NDJSON
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-            async start(controller) {
-                const send = (chunk: Record<string, unknown>) => {
-                    controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
-                };
-
-                try {
-                    // ========================================================
-                    // PHASE 1: ARCHITECT — analyze & plan
-                    // ========================================================
-                    send({
-                        type: 'event',
-                        event: {
-                            type: 'analyzing',
-                            message: `Architect analyzing requirements...`,
-                            progress: 5,
-                            timestamp: new Date(),
-                        },
-                    });
-
-                    send({
-                        type: 'event',
-                        event: {
-                            type: 'planning',
-                            message: `Planning app architecture with ${providerName}...`,
-                            progress: 10,
-                            timestamp: new Date(),
-                        },
-                    });
-
-                    const architectResponse = await callAI(
-                        provider, apiKey, selectedModel,
-                        ARCHITECT_PROMPT,
-                        userMessage,
-                        4096 // Spec doesn't need many tokens
-                    );
-
-                    const spec = safeParseJSON(architectResponse);
-
-                    if (spec) {
-                        const appName = (spec.appName as string) || 'App';
-                        const fileCount = Array.isArray(spec.files) ? spec.files.length : 3;
-                        const featureCount = Array.isArray(spec.features) ? spec.features.length : 0;
-
-                        send({
-                            type: 'event',
-                            event: {
-                                type: 'planning',
-                                message: `Planned "${appName}" — ${featureCount} features, ${fileCount} files`,
-                                progress: 25,
-                                timestamp: new Date(),
-                            },
-                        });
-                    } else {
-                        send({
-                            type: 'event',
-                            event: {
-                                type: 'planning',
-                                message: 'Architecture planned, proceeding to build...',
-                                progress: 25,
-                                timestamp: new Date(),
-                            },
-                        });
-                    }
-
-                    // ========================================================
-                    // PHASE 2: BUILDER — generate code from spec
-                    // ========================================================
-                    send({
-                        type: 'event',
-                        event: {
-                            type: 'coding',
-                            message: `Builder generating code with ${providerName}...`,
-                            progress: 30,
-                            timestamp: new Date(),
-                        },
-                    });
-
-                    // Build the builder's user message — include spec + original prompt + images
-                    let builderInput: string;
-                    if (spec) {
-                        builderInput = `## Application Specification\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\`\n\n## Original User Request\n${body.prompt}`;
-                    } else {
-                        // Fallback — send raw architect response + original prompt
-                        builderInput = `## Architect's Analysis\n${architectResponse}\n\n## Original User Request\n${body.prompt}`;
-                    }
-
-                    // Include images in builder message too
-                    const builderMessage: Array<Record<string, unknown>> = [
-                        { type: 'text', text: builderInput },
-                    ];
-                    // Add images from original request for visual reference
-                    for (const img of body.images) {
-                        if (provider === 'anthropic') {
-                            builderMessage.push({
-                                type: 'image',
-                                source: { type: 'base64', media_type: img.mimeType, data: img.base64 },
-                            });
-                        } else {
-                            builderMessage.push({
-                                type: 'image_url',
-                                image_url: { url: `data:${img.mimeType};base64,${img.base64}` },
-                            });
-                        }
-                    }
-
-                    const builderResponse = await callAI(
-                        provider, apiKey, selectedModel,
-                        BUILDER_PROMPT,
-                        builderMessage,
-                        16384
-                    );
-
-                    // Parse files
-                    let files = parseFilesFromResponse(builderResponse);
-
-                    if (files.length === 0) {
-                        files.push({
-                            path: 'index.html',
-                            content: builderResponse,
-                            language: 'html',
-                        });
-                    }
-
-                    send({
-                        type: 'event',
-                        event: {
-                            type: 'coding',
-                            message: `Generated ${files.length} files`,
-                            progress: 65,
-                            timestamp: new Date(),
-                        },
-                    });
-
-                    // ========================================================
-                    // PHASE 3: REVIEWER — validate functionality
-                    // ========================================================
-                    send({
-                        type: 'event',
-                        event: {
-                            type: 'reviewing',
-                            message: 'QA reviewing code quality...',
-                            progress: 70,
-                            timestamp: new Date(),
-                        },
-                    });
-
-                    const reviewInput = `## Specification\n\`\`\`json\n${JSON.stringify(spec || { prompt: body.prompt }, null, 2)}\n\`\`\`\n\n## Generated Files\n${files.map(f => `### ${f.path}\n\`\`\`${f.language}\n${f.content}\n\`\`\``).join('\n\n')}`;
-
-                    const reviewResponse = await callAI(
-                        provider, apiKey, selectedModel,
-                        REVIEWER_PROMPT,
-                        reviewInput,
-                        2048
-                    );
-
-                    const review = safeParseJSON(reviewResponse);
-                    const hasIssues = review && review.approved === false;
-
-                    if (hasIssues && review.issues && Array.isArray(review.issues)) {
-                        const issueCount = review.issues.length;
-                        send({
-                            type: 'event',
-                            event: {
-                                type: 'reviewing',
-                                message: `Found ${issueCount} issue${issueCount !== 1 ? 's' : ''}, applying fixes...`,
-                                progress: 75,
-                                timestamp: new Date(),
-                            },
-                        });
-
-                        // Re-run builder with fix instructions
-                        const fixInput = `## IMPORTANT: Fix these issues in the code below\n\n${review.fixInstructions}\n\n### Issues:\n${(review.issues as Array<Record<string, string>>).map(i => `- [${i.file}] ${i.description}`).join('\n')}\n\n## Current Code (fix and regenerate ALL files)\n${files.map(f => `---FILE: ${f.path}---\n${f.content}\n---END FILE---`).join('\n\n')}\n\nRegenerate ALL files with the fixes applied. Use the same ---FILE: / ---END FILE--- format.`;
-
-                        const fixedResponse = await callAI(
-                            provider, apiKey, selectedModel,
-                            BUILDER_PROMPT,
-                            fixInput,
-                            16384
-                        );
-
-                        const fixedFiles = parseFilesFromResponse(fixedResponse);
-                        if (fixedFiles.length > 0) {
-                            files = fixedFiles;
-                            send({
-                                type: 'event',
-                                event: {
-                                    type: 'reviewing',
-                                    message: `Applied fixes — ${files.length} files updated`,
-                                    progress: 85,
-                                    timestamp: new Date(),
-                                },
-                            });
-                        }
-                    } else {
-                        send({
-                            type: 'event',
-                            event: {
-                                type: 'reviewing',
-                                message: 'QA approved — all features verified ✓',
-                                progress: 85,
-                                timestamp: new Date(),
-                            },
-                        });
-                    }
-
-                    // ========================================================
-                    // EMIT FILES & COMPLETE
-                    // ========================================================
-                    for (let i = 0; i < files.length; i++) {
-                        const file = files[i];
-                        send({
-                            type: 'event',
-                            event: {
-                                type: 'coding',
-                                message: `Created ${file.path}`,
-                                progress: 85 + Math.round((i / files.length) * 10),
-                                timestamp: new Date(),
-                            },
-                        });
-                        send({ type: 'file', file });
-                    }
-
-                    // Metadata
-                    const projectName = detectProjectName(spec, body.prompt, files);
-                    send({
-                        type: 'metadata',
-                        metadata: {
-                            name: projectName,
-                            description: body.prompt,
-                            framework: 'Vanilla HTML/CSS/JS',
-                            createdAt: new Date(),
-                        },
-                    });
-
-                    // Done
-                    send({
-                        type: 'event',
-                        event: {
-                            type: 'complete',
-                            message: 'Generation complete!',
-                            progress: 100,
-                            timestamp: new Date(),
-                        },
-                    });
-                    send({ type: 'done' });
-
-                } catch (err) {
-                    send({
-                        type: 'error',
-                        error: err instanceof Error ? err.message : 'Unknown error occurred',
-                    });
-                }
-
-                controller.close();
-            },
-        });
-
-        return new Response(stream, {
-            headers: {
-                'Content-Type': 'application/x-ndjson',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-            },
-        });
-    } catch (err) {
-        return NextResponse.json(
-            { error: err instanceof Error ? err.message : 'Internal server error' },
-            { status: 500 }
-        );
+    if (!body.config?.apiKey) {
+      return NextResponse.json({ error: 'API key is required' }, { status: 400 });
     }
+    if (!isProvider(body.config.provider)) {
+      return NextResponse.json({ error: 'Unsupported AI provider' }, { status: 400 });
+    }
+
+    const hasPrompt = Boolean(body.prompt?.trim());
+    const hasImages = Array.isArray(body.images) && body.images.length > 0;
+    const hasUrls = Array.isArray(body.urls) && body.urls.length > 0;
+    if (!hasPrompt && !hasImages && !hasUrls) {
+      return NextResponse.json(
+        { error: 'Provide at least one input source: prompt, image, or URL.' },
+        { status: 400 }
+      );
+    }
+
+    const normalized = normalizeRequest(body);
+    const selectedModel = normalized.config.model || DEFAULT_MODELS[normalized.config.provider];
+    const providerLabel = getProviderLabel(normalized.config.provider);
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (chunk: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(chunk)}\n`));
+        };
+
+        let totalEstimatedCost = 0;
+        let files: GeneratedFile[] = [];
+        let spec: DesignSpec | null = null;
+        let runtimeHint: RuntimeHint | undefined;
+        let packageManifest: PackageManifest | undefined;
+        let responsiveReport: ResponsiveReport | undefined;
+        const policyNotes: string[] = [];
+        let lastRuntimeStable: {
+          files: GeneratedFile[];
+          runtimeHint?: RuntimeHint;
+          packageManifest?: PackageManifest;
+          responsiveReport?: ResponsiveReport;
+          report: QualityReport;
+        } | null = null;
+
+        const addCost = (value: number) => {
+          totalEstimatedCost = Number((totalEstimatedCost + value).toFixed(4));
+          if (totalEstimatedCost > normalized.constraints.maxCostUsd) {
+            throw new Error(
+              `Generation stopped: estimated cost $${totalEstimatedCost.toFixed(2)} exceeded cap $${normalized.constraints.maxCostUsd.toFixed(2)}`
+            );
+          }
+        };
+
+        try {
+          send({
+            type: 'event',
+            event: {
+              type: 'ingesting',
+              message: 'Ingesting references and extracting design signals...',
+              progress: 5,
+              timestamp: new Date(),
+            },
+          });
+
+          const references = await ingestReferences(normalized);
+          const warningText = references.warnings.length > 0
+            ? ` (${references.warnings.length} warning${references.warnings.length > 1 ? 's' : ''})`
+            : '';
+          send({
+            type: 'event',
+            event: {
+              type: 'ingesting',
+              message: `Reference confidence ${Math.round(references.referenceConfidence * 100)}%${warningText}`,
+              progress: 15,
+              timestamp: new Date(),
+            },
+          });
+
+          send({
+            type: 'event',
+            event: {
+              type: 'planning',
+              message: `Extracting design spec with ${providerLabel}...`,
+              progress: 22,
+              timestamp: new Date(),
+            },
+          });
+
+          const designSpec = await extractDesignSpec({
+            provider: normalized.config.provider,
+            apiKey: normalized.config.apiKey,
+            model: selectedModel,
+            outputStack: normalized.outputStack,
+            qualityMode: normalized.qualityMode,
+            references,
+          });
+          spec = designSpec.spec;
+          addCost(designSpec.usage.estimatedCostUsd);
+
+          send({
+            type: 'event',
+            event: {
+              type: 'planning',
+              message: `Spec ready: ${spec.appName} with ${spec.filePlan.length} planned files`,
+              progress: 35,
+              timestamp: new Date(),
+            },
+          });
+
+          send({
+            type: 'event',
+            event: {
+              type: 'coding',
+              message: 'Generating project files...',
+              progress: 45,
+              timestamp: new Date(),
+            },
+          });
+
+          const generated = await generateProject({
+            provider: normalized.config.provider,
+            apiKey: normalized.config.apiKey,
+            model: selectedModel,
+            spec,
+            outputStack: normalized.outputStack,
+            references,
+          });
+          const policy = enforcePackagePolicy(generated.files, normalized.outputStack);
+          files = policy.files;
+          runtimeHint = policy.runtimeHint;
+          packageManifest = policy.manifest;
+          responsiveReport = policy.responsiveReport;
+          policyNotes.push(...policy.notes);
+          addCost(generated.usage.estimatedCostUsd);
+
+          send({
+            type: 'event',
+            event: {
+              type: 'compiling',
+              message: `Resolved runtime: ${runtimeHint.preferredRuntime} (complexity ${runtimeHint.complexityScore})`,
+              progress: 60,
+              timestamp: new Date(),
+            },
+          });
+          if (runtimeHint.preferredRuntime === 'remote') {
+            send({
+              type: 'event',
+              event: {
+                type: 'runtime_fallback',
+                message: 'High complexity app detected. Remote runtime fallback is recommended.',
+                progress: 64,
+                timestamp: new Date(),
+              },
+            });
+          }
+
+          send({
+            type: 'event',
+            event: {
+              type: 'validating',
+              message: 'Running quality gates (visual + functional)...',
+              progress: 68,
+              timestamp: new Date(),
+            },
+          });
+
+          let validation = await validateOutput({
+            provider: normalized.config.provider,
+            apiKey: normalized.config.apiKey,
+            model: selectedModel,
+            spec,
+            outputStack: normalized.outputStack,
+            qualityMode: normalized.qualityMode,
+            references,
+            files,
+          });
+          addCost(validation.usage.estimatedCostUsd);
+
+          send({
+            type: 'event',
+            event: {
+              type: 'compiling',
+              message: 'Running runtime build validation...',
+              progress: 72,
+              timestamp: new Date(),
+            },
+          });
+          const runtimeValidation = await validateRuntimeBuild({
+            files,
+            outputStack: normalized.outputStack,
+          });
+          if (!runtimeValidation.passed) {
+            validation.report.accepted = false;
+            validation.report.retryRecommended = true;
+            validation.report.issues = uniqStrings([
+              ...validation.report.issues,
+              ...runtimeValidation.issues,
+            ]);
+            validation.report.patchInstructions = mergePatchInstructions(
+              validation.report.patchInstructions,
+              runtimeValidation.issues,
+            );
+            send({
+              type: 'event',
+              event: {
+                type: 'compiling',
+                message: `Runtime ${runtimeValidation.phase} failed. Preparing repair instructions...`,
+                progress: 74,
+                timestamp: new Date(),
+              },
+            });
+          } else if (runtimeValidation.phase !== 'skipped') {
+            send({
+              type: 'event',
+              event: {
+                type: 'compiling',
+                message: `Runtime build check passed in ${(runtimeValidation.durationMs / 1000).toFixed(1)}s`,
+                progress: 74,
+                timestamp: new Date(),
+              },
+            });
+          } else if (runtimeValidation.issues.length > 0) {
+            policyNotes.push(...runtimeValidation.issues);
+          }
+          if (runtimeValidation.passed) {
+            lastRuntimeStable = {
+              files: cloneFiles(files),
+              runtimeHint,
+              packageManifest,
+              responsiveReport,
+              report: cloneJson(validation.report),
+            };
+          }
+
+          let retries = 0;
+          while (
+            !validation.report.accepted
+            && validation.report.retryRecommended
+            && retries < normalized.constraints.maxRetries
+          ) {
+            retries += 1;
+            send({
+              type: 'event',
+              event: {
+                type: 'reviewing',
+                message: `Quality gate failed (visual ${validation.report.visualScore}%). Applying targeted repair ${retries}/${normalized.constraints.maxRetries}...`,
+                progress: 76,
+                timestamp: new Date(),
+              },
+            });
+
+            const repaired = await generateProject({
+              provider: normalized.config.provider,
+              apiKey: normalized.config.apiKey,
+              model: selectedModel,
+              spec,
+              outputStack: normalized.outputStack,
+              references,
+              repairInstructions: validation.report.patchInstructions || validation.report.issues.join('\n'),
+              existingFiles: files,
+            });
+            const policy = enforcePackagePolicy(repaired.files, normalized.outputStack);
+            files = policy.files;
+            runtimeHint = policy.runtimeHint;
+            packageManifest = policy.manifest;
+            responsiveReport = policy.responsiveReport;
+            policyNotes.push(...policy.notes);
+            addCost(repaired.usage.estimatedCostUsd);
+
+            validation = await validateOutput({
+              provider: normalized.config.provider,
+              apiKey: normalized.config.apiKey,
+              model: selectedModel,
+              spec,
+              outputStack: normalized.outputStack,
+              qualityMode: normalized.qualityMode,
+              references,
+              files,
+            });
+            addCost(validation.usage.estimatedCostUsd);
+
+            send({
+              type: 'event',
+              event: {
+                type: 'compiling',
+                message: 'Re-running runtime build validation...',
+                progress: 82,
+                timestamp: new Date(),
+              },
+            });
+            const repairedRuntimeValidation = await validateRuntimeBuild({
+              files,
+              outputStack: normalized.outputStack,
+            });
+            if (!repairedRuntimeValidation.passed) {
+              send({
+                type: 'event',
+                event: {
+                  type: 'compiling',
+                  message: `Runtime ${repairedRuntimeValidation.phase} still failing after repair.`,
+                  progress: 83,
+                  timestamp: new Date(),
+                },
+              });
+              validation.report.accepted = false;
+              validation.report.retryRecommended = true;
+              validation.report.issues = uniqStrings([
+                ...validation.report.issues,
+                ...repairedRuntimeValidation.issues,
+              ]);
+              validation.report.patchInstructions = mergePatchInstructions(
+                validation.report.patchInstructions,
+                repairedRuntimeValidation.issues,
+              );
+              if (lastRuntimeStable) {
+                files = cloneFiles(lastRuntimeStable.files);
+                runtimeHint = lastRuntimeStable.runtimeHint;
+                packageManifest = lastRuntimeStable.packageManifest;
+                responsiveReport = lastRuntimeStable.responsiveReport;
+                validation.report = cloneJson(lastRuntimeStable.report);
+                validation.report.retryRecommended = false;
+                send({
+                  type: 'event',
+                  event: {
+                    type: 'compiling',
+                    message: 'Repair degraded runtime stability; reverted to last compile-passing output.',
+                    progress: 84,
+                    timestamp: new Date(),
+                  },
+                });
+                break;
+              }
+            } else if (repairedRuntimeValidation.phase !== 'skipped') {
+              send({
+                type: 'event',
+                event: {
+                  type: 'compiling',
+                  message: `Runtime build check passed after repair in ${(repairedRuntimeValidation.durationMs / 1000).toFixed(1)}s`,
+                  progress: 83,
+                  timestamp: new Date(),
+                },
+              });
+              lastRuntimeStable = {
+                files: cloneFiles(files),
+                runtimeHint,
+                packageManifest,
+                responsiveReport,
+                report: cloneJson(validation.report),
+              };
+            } else if (repairedRuntimeValidation.phase === 'skipped' && repairedRuntimeValidation.issues.length > 0) {
+              policyNotes.push(...repairedRuntimeValidation.issues);
+            }
+          }
+
+          if (validation.report.responsiveWarnings && validation.report.responsiveWarnings.length > 0) {
+            send({
+              type: 'event',
+              event: {
+                type: 'responsive_check',
+                message: `Responsive warnings: ${validation.report.responsiveWarnings.length}`,
+                progress: 84,
+                timestamp: new Date(),
+              },
+            });
+            responsiveReport = {
+              passed: false,
+              warnings: validation.report.responsiveWarnings,
+              checkedViewports: [375, 768, 1280],
+            };
+          }
+
+          if (normalized.previewRuntimePreference !== 'auto' && runtimeHint) {
+            runtimeHint = {
+              ...runtimeHint,
+              preferredRuntime: normalized.previewRuntimePreference,
+              reason: `Runtime overridden by request preference: ${normalized.previewRuntimePreference}`,
+            };
+          }
+
+          send({
+            type: 'event',
+            event: {
+              type: 'validating',
+              message: validation.report.accepted
+                ? `Quality passed: visual ${validation.report.visualScore}%`
+                : `Best effort result: visual ${validation.report.visualScore}%`,
+              progress: 85,
+              timestamp: new Date(),
+            },
+          });
+
+          for (let i = 0; i < files.length; i += 1) {
+            const file = files[i];
+            send({
+              type: 'event',
+              event: {
+                type: 'coding',
+                message: `Created ${file.path}`,
+                progress: 86 + Math.round(((i + 1) / files.length) * 9),
+                timestamp: new Date(),
+              },
+            });
+            send({ type: 'file', file });
+          }
+
+          send({
+            type: 'metadata',
+            metadata: {
+              name: detectProjectName(spec, normalized.prompt, files),
+              description: normalized.prompt || spec.description,
+              framework: normalized.outputStack === 'react-tailwind'
+                ? 'React + Tailwind'
+                : 'Vanilla HTML/CSS/JS',
+              createdAt: new Date(),
+              runtimeHint,
+              packageManifest,
+              responsiveReport: responsiveReport || {
+                passed: true,
+                warnings: [],
+                checkedViewports: [375, 768, 1280],
+              },
+            },
+          });
+
+          const uniquePolicyNotes = [...new Set(policyNotes.map((note) => note.trim()).filter(Boolean))];
+          if (uniquePolicyNotes.length > 0) {
+            send({
+              type: 'event',
+              event: {
+                type: 'reviewing',
+                message: uniquePolicyNotes.join(' '),
+                progress: 96,
+                timestamp: new Date(),
+              },
+            });
+          }
+
+          send({
+            type: 'event',
+            event: {
+              type: 'complete',
+              message: `Generation complete (estimated cost: $${totalEstimatedCost.toFixed(2)})`,
+              progress: 100,
+              timestamp: new Date(),
+            },
+          });
+          send({ type: 'done' });
+        } catch (error) {
+          send({
+            type: 'error',
+            error: error instanceof Error ? error.message : 'Unknown generation error',
+          });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

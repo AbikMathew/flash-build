@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -19,7 +19,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Settings, Key, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Settings, Key, AlertCircle } from 'lucide-react';
 import { AIConfig, AIProvider } from '@/types';
 import { AIGenerator } from '@/services/generator/AIGenerator';
 
@@ -27,23 +27,17 @@ interface SettingsModalProps {
     onConfigChange?: (config: AIConfig | null) => void;
 }
 
-export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
-    const [open, setOpen] = useState(false);
-    const [provider, setProvider] = useState<AIProvider>('anthropic');
-    const [apiKey, setApiKey] = useState('');
-    const [model, setModel] = useState('');
-    const [saved, setSaved] = useState(false);
+function readInitialConfig(): AIConfig | null {
+    if (typeof window === 'undefined') return null;
+    return AIGenerator.getConfig();
+}
 
-    // Load existing config on mount
-    useEffect(() => {
-        const config = AIGenerator.getConfig();
-        if (config) {
-            setProvider(config.provider);
-            setApiKey(config.apiKey);
-            setModel(config.model || '');
-            setSaved(true);
-        }
-    }, []);
+export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
+    const initialConfig = readInitialConfig();
+    const [open, setOpen] = useState(false);
+    const [provider, setProvider] = useState<AIProvider>(initialConfig?.provider || 'anthropic');
+    const [apiKey, setApiKey] = useState(initialConfig?.apiKey || '');
+    const [model, setModel] = useState(initialConfig?.model || '');
 
     const handleSave = () => {
         if (!apiKey.trim()) return;
@@ -53,7 +47,6 @@ export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
             model: model.trim() || undefined,
         };
         AIGenerator.saveConfig(config);
-        setSaved(true);
         onConfigChange?.(config);
         setOpen(false);
     };
@@ -62,7 +55,6 @@ export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
         AIGenerator.clearConfig();
         setApiKey('');
         setModel('');
-        setSaved(false);
         onConfigChange?.(null);
     };
 
@@ -79,14 +71,8 @@ export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
                     size="sm"
                     className="h-7 px-2 text-xs gap-1.5"
                 >
-                    {saved ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-                    ) : (
-                        <Settings className="w-3.5 h-3.5" />
-                    )}
-                    <span className="hidden sm:inline">
-                        {saved ? 'AI Ready' : 'Settings'}
-                    </span>
+                    <Settings className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Settings</span>
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md bg-card border-border">
@@ -140,7 +126,6 @@ export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
                             value={apiKey}
                             onChange={(e) => {
                                 setApiKey(e.target.value);
-                                setSaved(false);
                             }}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -178,9 +163,9 @@ export default function SettingsModal({ onConfigChange }: SettingsModalProps) {
                     <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1.5 mb-1">
                             <AlertCircle className="w-3.5 h-3.5 text-yellow-400" />
-                            <span className="font-medium text-foreground">Estimated cost</span>
+                            <span className="font-medium text-foreground">Default quality guardrails</span>
                         </div>
-                        ~$0.02–0.05 per generation. Your key is only stored in your browser and sent directly to {provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} servers.
+                        Strict visual mode is enabled by default, with max 1 repair retry and a $0.25 run cap. Typical run cost is ~$0.12–$0.22. Your key remains in browser localStorage and is sent only to {provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}.
                     </div>
                 </div>
 

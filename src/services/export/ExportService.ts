@@ -1,35 +1,87 @@
 import JSZip from 'jszip';
-import { ProjectFile, ProjectMetadata } from '@/types';
+import { ExportMode, PackageManifest, ProjectFile, ProjectMetadata } from '@/types';
 
 /**
  * Export Service - generates downloadable ZIP files from project files.
  */
 export class ExportService {
-    static async downloadZip(files: ProjectFile[], metadata: ProjectMetadata): Promise<void> {
-        const zip = new JSZip();
+  static async downloadZip(
+    files: ProjectFile[],
+    metadata: ProjectMetadata,
+    mode: ExportMode = 'full-project',
+  ): Promise<void> {
+    const zip = new JSZip();
+    const exportFiles = mode === 'full-project'
+      ? files
+      : this.selectUiOnlyFiles(files);
 
-        // Add all project files
-        files.forEach(file => {
-            zip.file(file.path, file.content);
-        });
+    exportFiles.forEach((file) => {
+      zip.file(file.path, file.content);
+    });
 
-        // Auto-generate a README
-        zip.file('README.md', this.generateReadme(metadata, files));
-
-        const blob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${metadata.name.toLowerCase().replace(/\s+/g, '-')}.zip`;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+    if (mode === 'ui-only') {
+      zip.file(
+        'flashbuild-manifest.json',
+        `${JSON.stringify(this.buildIntegrationManifest(metadata), null, 2)}\n`,
+      );
     }
 
-    private static generateReadme(metadata: ProjectMetadata, files: ProjectFile[]): string {
-        return `# ${metadata.name}
+    zip.file('README.md', this.generateReadme(metadata, exportFiles, mode));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${metadata.name.toLowerCase().replace(/\s+/g, '-')}-${mode}.zip`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  private static selectUiOnlyFiles(files: ProjectFile[]): ProjectFile[] {
+    return files.filter((file) => {
+      if (file.path.startsWith('src/')) return true;
+      if (file.path.startsWith('public/')) return true;
+      if (file.path.startsWith('assets/')) return true;
+      if (/\.css$/.test(file.path) || /\.scss$/.test(file.path)) return true;
+      if (file.path.endsWith('index.html')) return true;
+      return false;
+    });
+  }
+
+  private static buildIntegrationManifest(metadata: ProjectMetadata): {
+    framework: string;
+    packageManifest: PackageManifest | null;
+    runtimeHint: ProjectMetadata['runtimeHint'] | null;
+    responsiveReport: ProjectMetadata['responsiveReport'] | null;
+  } {
+    return {
+      framework: metadata.framework,
+      packageManifest: metadata.packageManifest ?? null,
+      runtimeHint: metadata.runtimeHint ?? null,
+      responsiveReport: metadata.responsiveReport ?? null,
+    };
+  }
+
+  private static generateReadme(
+    metadata: ProjectMetadata,
+    files: ProjectFile[],
+    mode: ExportMode,
+  ): string {
+    const fullRunSteps = metadata.packageManifest
+      ? `\`\`\`bash
+npm install
+npm run dev
+\`\`\``
+      : 'Open `index.html` in your browser.';
+
+    const integrationSteps = `1. Copy exported files into your target repository.
+2. Merge dependencies/scripts from \`flashbuild-manifest.json\` into your \`package.json\`.
+3. Ensure entry file and routing are connected in your host app.`;
+
+    return `# ${metadata.name}
 
 ${metadata.description}
 
@@ -38,16 +90,25 @@ ${metadata.description}
 - **Framework**: ${metadata.framework}
 - **Files**: ${files.length}
 - **Generated**: ${metadata.createdAt.toLocaleDateString()}
+- **Export mode**: ${mode}
+
+## Runtime Hint
+
+${metadata.runtimeHint ? `- Preferred: ${metadata.runtimeHint.preferredRuntime}
+- Fallback: ${metadata.runtimeHint.fallbackRuntime ?? 'none'}
+- Complexity score: ${metadata.runtimeHint.complexityScore}
+- Reason: ${metadata.runtimeHint.reason}` : 'No runtime hint available.'}
 
 ## Getting Started
 
-Open \`index.html\` in your browser to view the application.
+${mode === 'full-project' ? fullRunSteps : integrationSteps}
 
 ## Project Structure
 
 \`\`\`
-${files.map(f => f.path).join('\n')}
+${files.map((f) => f.path).join('\n')}
 \`\`\`
 `;
-    }
+  }
 }
+

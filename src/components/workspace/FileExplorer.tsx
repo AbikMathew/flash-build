@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FileCode, FileText, FileJson, Image, ChevronRight, Folder, Download } from 'lucide-react';
+import { FileCode, FileText, FileJson, Image as ImageIcon, ChevronRight, Folder, Download } from 'lucide-react';
 import { ProjectFile } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +18,7 @@ function getFileIcon(path: string) {
     if (path.endsWith('.js') || path.endsWith('.ts') || path.endsWith('.tsx'))
         return <FileCode className="w-3.5 h-3.5 text-yellow-400" />;
     if (path.endsWith('.json')) return <FileJson className="w-3.5 h-3.5 text-green-400" />;
-    if (path.match(/\.(png|jpg|svg|gif)$/)) return <Image className="w-3.5 h-3.5 text-pink-400" />;
+    if (path.match(/\.(png|jpg|svg|gif)$/)) return <ImageIcon className="w-3.5 h-3.5 text-pink-400" />;
     return <FileText className="w-3.5 h-3.5 text-muted-foreground" />;
 }
 
@@ -100,41 +100,41 @@ function TreeNode({
     }
 
     return (
-        <button
-            className={cn(
-                'group flex items-center gap-1.5 w-full px-2 py-1 text-xs transition-colors',
-                activeFilePath === node.path
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground/80 hover:bg-accent/50'
-            )}
-            style={{ paddingLeft: `${depth * 12 + 20}px` }}
-            onClick={() => onSelectFile(node.path)}
-        >
-            {getFileIcon(node.path)}
-            <span className="truncate flex-1 text-left">{node.name}</span>
+        <div className="group relative">
+            <button
+                className={cn(
+                    'flex items-center gap-1.5 w-full px-2 py-1 pr-8 text-xs transition-colors',
+                    activeFilePath === node.path
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/80 hover:bg-accent/50'
+                )}
+                style={{ paddingLeft: `${depth * 12 + 20}px` }}
+                onClick={() => onSelectFile(node.path)}
+            >
+                {getFileIcon(node.path)}
+                <span className="truncate flex-1 text-left">{node.name}</span>
+            </button>
             {node.file && (
                 <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (node.file) {
-                            const blob = new Blob([node.file.content], { type: 'text/plain' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = node.file.path.split('/').pop() || 'file';
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                        }
+                    onClick={() => {
+                        const blob = new Blob([node.file?.content ?? ''], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = node.file?.path.split('/').pop() || 'file';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-background rounded transition-all text-muted-foreground hover:text-foreground"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-background rounded transition-all text-muted-foreground hover:text-foreground"
                     title="Download file"
+                    aria-label={`Download ${node.name}`}
                 >
                     <Download className="w-3 h-3" />
                 </button>
             )}
-        </button>
+        </div>
     );
 }
 

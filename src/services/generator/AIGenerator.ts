@@ -9,6 +9,7 @@ import {
     ProjectMetadata,
 } from '@/types';
 import { PreviewService } from '@/services/preview/PreviewService';
+import { PreviewRuntimeService } from '@/services/preview/runtime/PreviewRuntimeService';
 
 /**
  * AI Generator Service
@@ -83,45 +84,23 @@ export class AIGenerator implements IGeneratorService {
             })
         );
 
-        // Scrape URLs if present
-        let scrapedContext = '';
-        if (input.urls.length > 0) {
-            yield {
-                type: 'analyzing',
-                message: `Scraping ${input.urls.length} reference URL${input.urls.length > 1 ? 's' : ''}...`,
-                progress: 5,
-                timestamp: new Date(),
-            };
-
-            for (const url of input.urls) {
-                try {
-                    const scrapeRes = await fetch('/api/scrape', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url }),
-                    });
-
-                    if (scrapeRes.ok) {
-                        const data = await scrapeRes.json();
-                        scrapedContext += `\n\n--- REFERENCE URL: ${url} ---\nTitle: ${data.title}\nDescription: ${data.description}\nContent: ${data.content}\n--- END REFERENCE ---\n`;
-                    } else {
-                        console.warn(`Failed to scrape ${url}`);
-                    }
-                } catch (err) {
-                    console.error(`Error scraping ${url}:`, err);
-                }
-            }
-        }
-
         // Call our API route
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                prompt: input.prompt + scrapedContext,
+                prompt: input.prompt,
                 images,
-                urls: input.urls, // Still pass URLs for reference
+                urls: input.urls,
                 config: this.config,
+                outputStack: 'react-tailwind',
+                qualityMode: 'strict_visual',
+                previewRuntimePreference: 'auto',
+                exportMode: 'full-project',
+                constraints: {
+                    maxRetries: 1,
+                    maxCostUsd: 0.25,
+                },
             }),
         });
 
@@ -203,16 +182,23 @@ export class AIGenerator implements IGeneratorService {
         const metadata = projectMetadata || {
             name: 'Generated App',
             description: input.prompt,
-            framework: 'Vanilla HTML/CSS/JS',
+            framework: 'React + Tailwind',
             createdAt: new Date(),
         };
 
         const previewHtml = PreviewService.bundle(collectedFiles);
+        const previewRuntime = PreviewRuntimeService.resolve(
+            collectedFiles,
+            metadata,
+            previewHtml,
+            'auto'
+        ).runtime;
 
         return {
             files: collectedFiles,
             metadata,
             previewHtml,
+            previewRuntime,
         };
     }
 }

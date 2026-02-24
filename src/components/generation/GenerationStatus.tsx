@@ -5,10 +5,15 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { GenerationEvent } from '@/types';
 import { cn } from '@/lib/utils';
 import {
+    DatabaseZap,
     Brain,
     Search,
     Code2,
+    Hammer,
     ShieldCheck,
+    ScanLine,
+    Smartphone,
+    Cloud,
     CheckCircle2,
     AlertCircle,
     Loader2,
@@ -20,33 +25,39 @@ interface GenerationStatusProps {
 }
 
 const eventConfig: Record<string, { icon: React.ElementType; color: string }> = {
+    ingesting: { icon: DatabaseZap, color: 'text-cyan-400' },
     planning: { icon: Brain, color: 'text-purple-400' },
     analyzing: { icon: Search, color: 'text-blue-400' },
     coding: { icon: Code2, color: 'text-green-400' },
+    compiling: { icon: Hammer, color: 'text-orange-400' },
     reviewing: { icon: ShieldCheck, color: 'text-yellow-400' },
+    validating: { icon: ScanLine, color: 'text-indigo-400' },
+    responsive_check: { icon: Smartphone, color: 'text-cyan-400' },
+    runtime_fallback: { icon: Cloud, color: 'text-sky-400' },
     complete: { icon: CheckCircle2, color: 'text-emerald-400' },
     error: { icon: AlertCircle, color: 'text-red-400' },
 };
 
 function ElapsedTimer({ isRunning }: { isRunning: boolean }) {
     const [elapsed, setElapsed] = useState(0);
-    const startRef = useRef(Date.now());
+    const startRef = useRef<number | null>(null);
 
     useEffect(() => {
+        if (!isRunning) {
+            startRef.current = null;
+            return;
+        }
         startRef.current = Date.now();
-        setElapsed(0);
-    }, []);
-
-    useEffect(() => {
-        if (!isRunning) return;
         const interval = setInterval(() => {
+            if (!startRef.current) return;
             setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
         }, 1000);
         return () => clearInterval(interval);
     }, [isRunning]);
 
-    const mins = Math.floor(elapsed / 60);
-    const secs = elapsed % 60;
+    const displayElapsed = isRunning ? elapsed : 0;
+    const mins = Math.floor(displayElapsed / 60);
+    const secs = displayElapsed % 60;
 
     return (
         <span className="text-xs text-muted-foreground tabular-nums">
