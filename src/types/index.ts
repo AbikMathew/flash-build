@@ -194,6 +194,18 @@ export interface DesignSpec {
     name: string;
     role: string;
     states: string[];
+    props?: string[];
+    events?: string[];
+  }>;
+  routes?: Array<{
+    path: string;
+    component: string;
+    label: string;
+  }>;
+  dataModel?: Array<{
+    entity: string;
+    fields: string[];
+    sampleCount: number;
   }>;
   interactions: string[];
   filePlan: Array<{

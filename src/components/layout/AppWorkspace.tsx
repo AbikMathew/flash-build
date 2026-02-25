@@ -101,7 +101,26 @@ export default function AppWorkspace() {
             delete deps['@tailwindcss/postcss'];
             delete deps.postcss;
             delete deps.autoprefixer;
-            // Everything else passes through (framer-motion, lucide-react, react-router-dom, etc.)
+
+            // Pin known-good versions for common packages
+            // (AI often generates outdated versions that Sandpack CDN can't find)
+            const PINNED_VERSIONS: Record<string, string> = {
+                'lucide-react': '^0.460.0',
+                'framer-motion': '^11.15.0',
+                'react-router-dom': '^6.28.0',
+                'react-icons': '^5.4.0',
+                'recharts': '^2.14.0',
+                'zustand': '^5.0.0',
+                'clsx': '^2.1.0',
+                'tailwind-merge': '^2.6.0',
+            };
+            for (const [pkg, version] of Object.entries(PINNED_VERSIONS)) {
+                if (deps[pkg]) {
+                    deps[pkg] = version;
+                }
+            }
+
+            // Everything else passes through
             return deps;
         } catch {
             return {};
@@ -188,6 +207,8 @@ export default function AppWorkspace() {
                 let code = file.content;
                 // Fix: './App.tsx' → './App' (Vite resolves without extension)
                 code = code.replace(/from\s+['"]\.\/App\.tsx['"]/g, "from './App'");
+                // Fix: BrowserRouter → HashRouter (Sandpack doesn't support pushState routing)
+                code = code.replace(/BrowserRouter/g, 'HashRouter');
                 // Fix: './index.css' stays as-is (we map src/index.css → /index.css)
                 filesMap['/index.tsx'] = { code };
                 continue;
@@ -210,6 +231,11 @@ export default function AppWorkspace() {
                     .replace(/^@tailwind\s+\w+;\s*$/gm, '')           // v3: @tailwind base;
                     .replace(/^@import\s+['"]tailwindcss(\/[^'"]*)?['"];?\s*$/gm, '')  // v4: @import "tailwindcss";
                     .trim();
+            }
+
+            // Fix router: BrowserRouter → HashRouter (BrowserRouter needs server-side URL handling, Sandpack doesn't have it)
+            if (targetPath.endsWith('.tsx') || targetPath.endsWith('.jsx') || targetPath.endsWith('.ts') || targetPath.endsWith('.js')) {
+                code = code.replace(/BrowserRouter/g, 'HashRouter');
             }
 
             filesMap[targetPath] = { code };

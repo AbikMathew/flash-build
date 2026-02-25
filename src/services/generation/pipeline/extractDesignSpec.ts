@@ -25,6 +25,8 @@ const DESIGN_SPEC_SCHEMA: Record<string, unknown> = {
     'layout',
     'visualSystem',
     'components',
+    'routes',
+    'dataModel',
     'interactions',
     'filePlan',
   ],
@@ -57,11 +59,39 @@ const DESIGN_SPEC_SCHEMA: Record<string, unknown> = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['name', 'role', 'states'],
+        required: ['name', 'role', 'states', 'props', 'events'],
         properties: {
           name: { type: 'string' },
           role: { type: 'string' },
           states: { type: 'array', items: { type: 'string' } },
+          props: { type: 'array', items: { type: 'string' } },
+          events: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    routes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['path', 'component', 'label'],
+        properties: {
+          path: { type: 'string' },
+          component: { type: 'string' },
+          label: { type: 'string' },
+        },
+      },
+    },
+    dataModel: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['entity', 'fields', 'sampleCount'],
+        properties: {
+          entity: { type: 'string' },
+          fields: { type: 'array', items: { type: 'string' } },
+          sampleCount: { type: 'integer' },
         },
       },
     },
@@ -83,43 +113,80 @@ const DESIGN_SPEC_SCHEMA: Record<string, unknown> = {
 
 const SYSTEM_PROMPT = `You are the Design Architect of FlashBuild.
 
-Generate a strict JSON specification for an app replica.
+Generate a DETAILED JSON specification for an app. The Builder agent will use this spec to write all source files, so be SPECIFIC and THOROUGH.
 
 Rules:
 1) Prioritize visual fidelity to references first, then functional coverage.
 2) Do not invent product features that are not implied by inputs.
 3) Runtime target by outputStack:
    - vanilla: direct browser execution (srcdoc-safe files)
-   - react-tailwind: npm-runnable project suitable for module runtime (Sandpack/remote)
+   - react-tailwind: npm-runnable project suitable for Sandpack preview
 4) File plan must match outputStack:
    - vanilla: index.html, styles.css, app.js
-   - react-tailwind: package.json, index.html, src/main.tsx, src/App.tsx, src/styles.css, tailwind.config.js, postcss.config.js
+   - react-tailwind: package.json, index.html, src/main.tsx, src/App.tsx, src/styles.css, src/components/*
+   - Do NOT include tailwind.config.js or postcss.config.js (Tailwind runs via CDN in Sandpack)
 5) Responsive requirements are mandatory: viewport meta + mobile-first behavior with breakpoints at 375px, 768px, 1280px.
 6) Use exact-like color and spacing tokens where possible.
-7) Include concrete interactions for critical user flows.
-8) When reference images/screenshots are present, extract GRANULAR visual tokens:
+
+COMPONENT DETAIL (critical for quality):
+7) For each component, specify:
+   - name: component filename (e.g., 'Sidebar', 'TaskCard')
+   - role: what it does and what it renders (be specific: '6 stat cards in 3x2 grid with icon, label, value, trend arrow')
+   - states: all visual states (default, hover, active, loading, empty, error, collapsed, expanded)
+   - props: data it receives (e.g., 'title: string, count: number, icon: LucideIcon, trend: up|down')
+   - events: interactions it handles (e.g., 'onClick: navigate to detail page', 'onToggle: collapse/expand sidebar')
+
+ROUTES & NAVIGATION (apps should feel multi-screen):
+8) Define routes array with:
+   - path: URL path (e.g., '/', '/settings', '/profile')
+   - component: which component renders at this route
+   - label: navigation label for sidebar/navbar
+   Plan AT LEAST 2-3 routes for any app with a sidebar or navbar.
+
+DATA MODEL (populate with realistic mock data):
+9) Define dataModel array with:
+   - entity: name (e.g., 'Task', 'User', 'Product')
+   - fields: list of field names and types (e.g., 'title: string', 'status: pending|active|done')
+   - sampleCount: how many mock items to generate (5-8 for lists, 3-4 for cards)
+
+INTERACTIONS (apps must feel alive):
+10) Define specific user flows, not just labels:
+    - BAD: 'button:Submit'
+    - GOOD: 'Click Add Task → open modal with title/description/priority form → submit → add to list with animation → show success toast'
+    - Include: form submissions, filters, search, tab switching, sidebar toggle, card click → detail view
+
+11) When reference images/screenshots are present, extract GRANULAR visual tokens:
    - Exact hex colors visible in the design (eyedrop, do not guess)
    - Font size ratios between headings/body (e.g., 'heading:32px/body:14px')
    - Border-radius patterns ('rounded-xl', 'sharp corners', 'pill buttons')
    - Shadow intensity levels ('subtle drop-shadow', 'heavy elevation')
    - Layout grid structure ('2-column sidebar', '3-card grid', 'max-w-7xl centered')
-9) When NO reference images exist (text-only prompt), provide premium defaults:
+12) When NO reference images exist (text-only prompt), provide premium defaults:
    - palette: dark slate theme with blue/violet accents
    - typography: system-ui/Inter font stack, bold headings, regular body
    - spacing: consistent 4px/8px grid system
    These defaults ensure beautiful output even without visual references.
 
+Sandpack package constraints:
+13) AVAILABLE PACKAGES for react-tailwind:
+   - framer-motion (entrance animations, page transitions)
+   - lucide-react (icons — preferred)
+   - react-icons (icon fallback)
+   - react-router-dom (routing — USE HashRouter, NOT BrowserRouter)
+   - recharts (charts/graphs)
+   - clsx, tailwind-merge (class utilities)
+   - zustand (state management)
+   - Do NOT plan for: @shadcn/ui, Material UI, Chakra UI, Next.js
+
 Return ONLY JSON.`;
 
 function buildFallbackSpec(references: ReferenceBundle, outputStack: OutputStack): DesignSpec {
   const reactFilePlan: DesignSpec['filePlan'] = [
-    { path: 'package.json', purpose: 'Dependencies and scripts for npm runtime' },
+    { path: 'package.json', purpose: 'Dependencies and scripts' },
     { path: 'index.html', purpose: 'Root HTML with #root mount and viewport meta' },
     { path: 'src/main.tsx', purpose: 'React entrypoint and root render' },
-    { path: 'src/App.tsx', purpose: 'Primary app shell and layout' },
-    { path: 'src/styles.css', purpose: 'Tailwind import and global styles' },
-    { path: 'tailwind.config.js', purpose: 'Tailwind content scanning and theme extension' },
-    { path: 'postcss.config.js', purpose: 'PostCSS + Tailwind plugin wiring' },
+    { path: 'src/App.tsx', purpose: 'App shell with routing and layout' },
+    { path: 'src/styles.css', purpose: 'Custom CSS and @keyframes (no Tailwind imports)' },
   ];
   const vanillaFilePlan: DesignSpec['filePlan'] = [
     { path: 'index.html', purpose: 'Main markup and application mount points' },
@@ -132,8 +199,8 @@ function buildFallbackSpec(references: ReferenceBundle, outputStack: OutputStack
     description: references.prompt.slice(0, 140) || 'Generated web app replica',
     outputStack,
     layout: {
-      structure: 'Single-page app with header, main content area, and utility panels.',
-      sections: ['header', 'main', 'footer'],
+      structure: 'Single-page app with sidebar navigation, header, and main content area.',
+      sections: ['sidebar', 'header', 'main', 'footer'],
       breakpoints: ['375', '768', '1280'],
     },
     visualSystem: {
@@ -148,9 +215,16 @@ function buildFallbackSpec(references: ReferenceBundle, outputStack: OutputStack
         : ['padding: 1rem (p-4)', 'padding: 1.5rem (p-6)', 'gap: 1rem (gap-4)', 'gap: 1.5rem (gap-6)', 'margin: 2rem section spacing'],
     },
     components: [
-      { name: 'Header', role: 'Navigation and branding', states: ['default'] },
-      { name: 'MainContent', role: 'Primary UI rendering', states: ['default', 'loading'] },
-      { name: 'ActionControls', role: 'Primary interactions', states: ['idle', 'active', 'disabled'] },
+      { name: 'Sidebar', role: 'Collapsible navigation with icon links', states: ['expanded', 'collapsed'], props: ['activeRoute: string'], events: ['onToggle: collapse/expand', 'onNavigate: switch route'] },
+      { name: 'Header', role: 'Top bar with search, user avatar, notifications', states: ['default'], props: ['title: string'], events: ['onSearch: filter content'] },
+      { name: 'MainContent', role: 'Primary content area with route outlet', states: ['default', 'loading', 'empty'], props: [], events: [] },
+    ],
+    routes: [
+      { path: '/', component: 'Dashboard', label: 'Dashboard' },
+      { path: '/settings', component: 'Settings', label: 'Settings' },
+    ],
+    dataModel: [
+      { entity: 'Item', fields: ['id: string', 'title: string', 'status: active|pending|done', 'createdAt: date'], sampleCount: 6 },
     ],
     interactions: references.interactionHints.slice(0, 10),
     filePlan: outputStack === 'react-tailwind' ? reactFilePlan : vanillaFilePlan,
@@ -204,7 +278,7 @@ export async function extractDesignSpec(params: ExtractDesignSpecParams): Promis
     model: params.model,
     systemPrompt: SYSTEM_PROMPT,
     userContent,
-    maxTokens: 3500,
+    maxTokens: 6000,
     jsonSchema: params.provider === 'openai' ? DESIGN_SPEC_SCHEMA : undefined,
   });
 
