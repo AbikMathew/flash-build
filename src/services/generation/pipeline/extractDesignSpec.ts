@@ -97,6 +97,17 @@ Rules:
 5) Responsive requirements are mandatory: viewport meta + mobile-first behavior with breakpoints at 375px, 768px, 1280px.
 6) Use exact-like color and spacing tokens where possible.
 7) Include concrete interactions for critical user flows.
+8) When reference images/screenshots are present, extract GRANULAR visual tokens:
+   - Exact hex colors visible in the design (eyedrop, do not guess)
+   - Font size ratios between headings/body (e.g., 'heading:32px/body:14px')
+   - Border-radius patterns ('rounded-xl', 'sharp corners', 'pill buttons')
+   - Shadow intensity levels ('subtle drop-shadow', 'heavy elevation')
+   - Layout grid structure ('2-column sidebar', '3-card grid', 'max-w-7xl centered')
+9) When NO reference images exist (text-only prompt), provide premium defaults:
+   - palette: dark slate theme with blue/violet accents
+   - typography: system-ui/Inter font stack, bold headings, regular body
+   - spacing: consistent 4px/8px grid system
+   These defaults ensure beautiful output even without visual references.
 
 Return ONLY JSON.`;
 
@@ -126,9 +137,15 @@ function buildFallbackSpec(references: ReferenceBundle, outputStack: OutputStack
       breakpoints: ['375', '768', '1280'],
     },
     visualSystem: {
-      palette: references.styleTokens.filter((token) => token.startsWith('#')).slice(0, 8),
-      typography: references.styleTokens.filter((token) => token.includes('font-family')).slice(0, 4),
-      spacing: references.styleTokens.filter((token) => token.includes('padding') || token.includes('margin')).slice(0, 6),
+      palette: references.styleTokens.filter((token) => token.startsWith('#')).slice(0, 8).length > 0
+        ? references.styleTokens.filter((token) => token.startsWith('#')).slice(0, 8)
+        : ['#0f172a', '#1e293b', '#334155', '#3b82f6', '#8b5cf6', '#f8fafc', '#94a3b8', '#22d3ee'],
+      typography: references.styleTokens.filter((token) => token.includes('font-family')).slice(0, 4).length > 0
+        ? references.styleTokens.filter((token) => token.includes('font-family')).slice(0, 4)
+        : ['font-family: system-ui, -apple-system, Inter, sans-serif', 'font-weight: 700 headings', 'font-weight: 400 body'],
+      spacing: references.styleTokens.filter((token) => token.includes('padding') || token.includes('margin')).slice(0, 6).length > 0
+        ? references.styleTokens.filter((token) => token.includes('padding') || token.includes('margin')).slice(0, 6)
+        : ['padding: 1rem (p-4)', 'padding: 1.5rem (p-6)', 'gap: 1rem (gap-4)', 'gap: 1.5rem (gap-6)', 'margin: 2rem section spacing'],
     },
     components: [
       { name: 'Header', role: 'Navigation and branding', states: ['default'] },

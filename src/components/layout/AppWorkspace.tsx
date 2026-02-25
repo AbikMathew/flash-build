@@ -96,6 +96,12 @@ export default function AppWorkspace() {
             delete deps.typescript;
             delete deps['@types/react'];
             delete deps['@types/react-dom'];
+            // Tailwind build tools — not needed, we use CDN
+            delete deps.tailwindcss;
+            delete deps['@tailwindcss/postcss'];
+            delete deps.postcss;
+            delete deps.autoprefixer;
+            // Everything else passes through (framer-motion, lucide-react, react-router-dom, etc.)
             return deps;
         } catch {
             return {};
@@ -196,10 +202,14 @@ export default function AppWorkspace() {
             // Ensure leading slash
             const targetPath = baseName.startsWith('/') ? baseName : `/${baseName}`;
 
-            // Clean CSS: strip @tailwind directives (CDN handles this)
+            // Clean CSS: strip Tailwind build directives (CDN handles this)
+            // Covers both v3 (@tailwind base;) and v4 (@import "tailwindcss";) syntax
             let code = file.content;
             if (targetPath.endsWith('.css')) {
-                code = code.replace(/^@tailwind\s+\w+;\s*$/gm, '').trim();
+                code = code
+                    .replace(/^@tailwind\s+\w+;\s*$/gm, '')           // v3: @tailwind base;
+                    .replace(/^@import\s+['"]tailwindcss(\/[^'"]*)?['"];?\s*$/gm, '')  // v4: @import "tailwindcss";
+                    .trim();
             }
 
             filesMap[targetPath] = { code };
