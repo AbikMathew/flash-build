@@ -193,6 +193,17 @@ export default function AppWorkspace() {
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.onerror = function(msg, src, line, col, err) {
+        var root = document.getElementById('root');
+        if (root && root.innerHTML.trim() === '') {
+          root.innerHTML = '<div style="padding:2rem;font-family:monospace;color:#ef4444;background:#0f172a;min-height:100vh">' +
+            '<h2 style="font-size:1.25rem;margin-bottom:1rem">⚠ Runtime Error</h2>' +
+            '<pre style="white-space:pre-wrap;font-size:0.875rem;color:#f87171">' + msg + '</pre>' +
+            '<pre style="white-space:pre-wrap;font-size:0.75rem;color:#94a3b8;margin-top:1rem">' + (src || '') + ':' + (line || '') + '</pre></div>';
+        }
+      };
+    </script>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>`
@@ -254,6 +265,17 @@ export default function AppWorkspace() {
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.onerror = function(msg, src, line, col, err) {
+        var root = document.getElementById('root');
+        if (root && root.innerHTML.trim() === '') {
+          root.innerHTML = '<div style="padding:2rem;font-family:monospace;color:#ef4444;background:#0f172a;min-height:100vh">' +
+            '<h2 style="font-size:1.25rem;margin-bottom:1rem">⚠ Runtime Error</h2>' +
+            '<pre style="white-space:pre-wrap;font-size:0.875rem;color:#f87171">' + msg + '</pre>' +
+            '<pre style="white-space:pre-wrap;font-size:0.75rem;color:#94a3b8;margin-top:1rem">' + (src || '') + ':' + (line || '') + '</pre></div>';
+        }
+      };
+    </script>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>`
@@ -482,6 +504,7 @@ export default function AppWorkspace() {
                                                         showRefreshButton
                                                         showOpenInCodeSandbox={false}
                                                         showNavigator
+                                                        showSandpackErrorOverlay
                                                     />
                                                 </ResizablePanel>
                                                 <ResizableHandle />
