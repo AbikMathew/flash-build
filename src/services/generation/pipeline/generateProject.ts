@@ -101,6 +101,17 @@ Visual design standards (apply always — override ONLY when reference screensho
    - Icons should be size={18-20} with strokeWidth={1.5}
    - Fallback: use react-icons (import { FiHome } from 'react-icons/fi')
    - Include icons in buttons, nav items, empty states, and cards for visual richness
+PLACEHOLDER IMAGES (critical — local image paths do not exist in the preview runtime):
+   - NEVER use local image paths (e.g., /images/photo.jpg, ./assets/hero.png, /public/img.png) — they will break
+   - For photo content (avatars, product images, hero banners, gallery items, feed posts):
+     Use https://picsum.photos/{width}/{height}?random={n} where {n} is a unique integer per image
+     Example: <img src="https://picsum.photos/400/300?random=1" alt="Product" className="w-full h-48 object-cover rounded-lg" />
+     Example avatar: <img src="https://picsum.photos/80/80?random=42" alt="User" className="w-10 h-10 rounded-full" />
+   - For placeholder/wireframe images: use https://placehold.co/{width}x{height}/{bg}/{text}
+     Example: <img src="https://placehold.co/600x400/1e293b/94a3b8?text=Hero+Image" />
+   - For logos: use a styled div with text or an inline SVG — never an image URL
+   - ALWAYS set width/height via Tailwind size classes (w-full h-48, w-10 h-10, etc.) on <img> to prevent layout shift
+   - For background images: use Tailwind gradient classes (bg-gradient-to-r) instead of background-image with URLs
 18) RECOMMENDED PACKAGES for premium UI (include in package.json dependencies when used):
    - framer-motion: entrance/exit animations, layoutId transitions, spring physics (ALWAYS use for polished UI)
    - lucide-react: clean, modern icon set (preferred). Fallback: react-icons

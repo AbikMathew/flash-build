@@ -15,6 +15,10 @@ export class ExportService {
       ? files
       : this.selectUiOnlyFiles(files);
 
+    if (exportFiles.length === 0) {
+      throw new Error('No files to export');
+    }
+
     exportFiles.forEach((file) => {
       zip.file(file.path, file.content);
     });
@@ -32,7 +36,12 @@ export class ExportService {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${metadata.name.toLowerCase().replace(/\s+/g, '-')}-${mode}.zip`;
+    const safeName = metadata.name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .slice(0, 50) || 'project';
+    a.download = `${safeName}-${mode}.zip`;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();

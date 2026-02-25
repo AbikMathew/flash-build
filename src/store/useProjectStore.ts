@@ -6,6 +6,7 @@ import {
     GenerationEvent,
     WorkspaceView,
     ViewportSize,
+    UploadedImage,
 } from '@/types';
 
 interface ProjectState {
@@ -19,6 +20,11 @@ interface ProjectState {
     status: GenerationStatus;
     events: GenerationEvent[];
     error: string | null;
+
+    // Input state (persists across SandpackProvider remounts)
+    inputPrompt: string;
+    inputImages: UploadedImage[];
+    inputUrls: string[];
 
     // UI state
     workspaceView: WorkspaceView;
@@ -40,6 +46,11 @@ interface ProjectState {
     clearEvents: () => void;
     setError: (error: string | null) => void;
 
+    // Actions - Input
+    setInputPrompt: (prompt: string) => void;
+    setInputImages: (images: UploadedImage[]) => void;
+    setInputUrls: (urls: string[]) => void;
+
     // Actions - UI
     setWorkspaceView: (view: WorkspaceView) => void;
     setViewportSize: (size: ViewportSize) => void;
@@ -55,6 +66,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
     status: 'idle',
     events: [],
     error: null,
+    inputPrompt: '',
+    inputImages: [],
+    inputUrls: [],
     workspaceView: 'split',
     viewportSize: 'desktop',
     isSidebarOpen: true,
@@ -90,6 +104,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
         set((state) => ({ events: [...state.events, event] })),
     clearEvents: () => set({ events: [] }),
     setError: (error) => set({ error }),
+
+    // Input actions
+    setInputPrompt: (prompt) => set({ inputPrompt: prompt }),
+    setInputImages: (images) => set({ inputImages: images }),
+    setInputUrls: (urls) => set({ inputUrls: urls }),
 
     // UI actions
     setWorkspaceView: (view) => set({ workspaceView: view }),

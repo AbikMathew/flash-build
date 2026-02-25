@@ -135,6 +135,7 @@ COMPONENT DETAIL (critical for quality):
    - states: all visual states (default, hover, active, loading, empty, error, collapsed, expanded)
    - props: data it receives (e.g., 'title: string, count: number, icon: LucideIcon, trend: up|down')
    - events: interactions it handles (e.g., 'onClick: navigate to detail page', 'onToggle: collapse/expand sidebar')
+   - When a component needs images (avatars, product photos, hero images, gallery), specify in the role that it should use https://picsum.photos/{w}/{h}?random={n} URLs — NEVER local file paths (they do not exist in the preview runtime)
 
 ROUTES & NAVIGATION (apps should feel multi-screen):
 8) Define routes array with:

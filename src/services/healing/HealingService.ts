@@ -36,6 +36,41 @@ export class HealingService {
             };
         }
 
+        // Generic missing npm module
+        const missingModuleMatch = fullLog.match(/Cannot find module '([^']+)'/);
+        if (missingModuleMatch) {
+            const moduleName = missingModuleMatch[1];
+            // Only handle npm packages, not relative imports
+            if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) {
+                return {
+                    type: 'add-dependency',
+                    description: `Add missing package: ${moduleName}`,
+                    payload: {
+                        dependency: moduleName,
+                        version: 'latest'
+                    }
+                };
+            }
+        }
+
+        // Invalid hook call (often caused by duplicate React)
+        if (fullLog.includes('Invalid hook call')) {
+            return {
+                type: 'config-change',
+                description: 'Fix invalid hook call (possible duplicate React)',
+                payload: { issue: 'invalid-hook-call' }
+            };
+        }
+
+        // General runtime crash causing blank screen
+        if (fullLog.includes('Uncaught') || fullLog.includes('is not defined') || fullLog.includes('is not a function')) {
+            return {
+                type: 'config-change',
+                description: 'Runtime error detected — check console for details',
+                payload: { issue: 'runtime-crash', errorSnippet: fullLog.slice(0, 500) }
+            };
+        }
+
         return null;
     }
 
