@@ -330,7 +330,12 @@ export async function ingestUrlReference(rawUrl: string): Promise<IngestedUrlRef
   const bodyTextLength = $('body').text().trim().length;
   const jsHeavyLikely = scriptCount > 15 && bodyTextLength < 400;
   if (jsHeavyLikely) {
-    warnings.push('Reference appears JS-heavy; add a screenshot for higher fidelity.');
+    warnings.push(
+      `Reference "${url.hostname}" appears to be a JavaScript-heavy SPA (${scriptCount} scripts, minimal server-rendered HTML). ` +
+      'Static HTML scraping captured limited visual/content data. For much better results: ' +
+      '(1) upload a screenshot of the page as a reference image, or ' +
+      '(2) set FIRECRAWL_API_KEY in your environment for rendered screenshot capture.',
+    );
   }
 
   let screenshot: ReferenceScreenshot | undefined;

@@ -18,6 +18,7 @@ import {
     ChevronUp,
 } from 'lucide-react';
 import { UploadedImage } from '@/types';
+import { useProjectStore } from '@/store/useProjectStore';
 
 interface InputPanelProps {
     onGenerate: (prompt: string, images: UploadedImage[], urls: string[]) => void;
@@ -30,9 +31,13 @@ const MAX_IMAGE_SIZE_MB = 5;
 const MAX_URLS = 3;
 
 export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps) {
-    const [prompt, setPrompt] = useState('');
-    const [images, setImages] = useState<UploadedImage[]>([]);
-    const [urls, setUrls] = useState<string[]>([]);
+    const prompt = useProjectStore((s) => s.inputPrompt);
+    const images = useProjectStore((s) => s.inputImages);
+    const urls = useProjectStore((s) => s.inputUrls);
+    const setPrompt = useProjectStore((s) => s.setInputPrompt);
+    const setImages = useProjectStore((s) => s.setInputImages);
+    const setUrls = useProjectStore((s) => s.setInputUrls);
+
     const [urlInput, setUrlInput] = useState('');
     const [isExpanded, setIsExpanded] = useState(true);
 
@@ -57,28 +62,26 @@ export default function InputPanel({ onGenerate, isGenerating }: InputPanelProps
             previewUrl: URL.createObjectURL(file),
             name: file.name,
         }));
-        setImages(prev => [...prev, ...newImages]);
-    }, [images.length]);
+        setImages([...images, ...newImages]);
+    }, [images, setImages]);
 
     const removeImage = (id: string) => {
-        setImages(prev => {
-            const img = prev.find(i => i.id === id);
-            if (img) URL.revokeObjectURL(img.previewUrl);
-            return prev.filter(i => i.id !== id);
-        });
+        const img = images.find(i => i.id === id);
+        if (img) URL.revokeObjectURL(img.previewUrl);
+        setImages(images.filter(i => i.id !== id));
     };
 
     const addUrl = () => {
         if (urls.length >= MAX_URLS) return;
         const trimmed = urlInput.trim();
         if (trimmed && !urls.includes(trimmed)) {
-            setUrls(prev => [...prev, trimmed]);
+            setUrls([...urls, trimmed]);
             setUrlInput('');
         }
     };
 
     const removeUrl = (url: string) => {
-        setUrls(prev => prev.filter(u => u !== url));
+        setUrls(urls.filter(u => u !== url));
     };
 
     const handleSubmit = () => {

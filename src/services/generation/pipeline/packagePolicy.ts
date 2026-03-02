@@ -441,6 +441,72 @@ main, .container, [data-layout-root="true"] {
   return `${trimmed}${baseline}`;
 }
 
+function ensureErrorBoundary(files: GeneratedFile[]): GeneratedFile[] {
+  let next = [...files];
+
+  // Skip if the code already has an ErrorBoundary
+  const hasEB = next.some(
+    (f) => f.path.includes('ErrorBoundary') || f.content.includes('getDerivedStateFromError'),
+  );
+  if (hasEB) return next;
+
+  next = upsertFile(
+    next,
+    'src/ErrorBoundary.tsx',
+    `import React from 'react';
+
+interface Props { children: React.ReactNode; }
+interface State { hasError: boolean; error: Error | null; }
+
+export default class ErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '2rem', fontFamily: 'monospace', color: '#ef4444', background: '#0f172a', minHeight: '100vh' }}>
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Runtime Error</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.875rem', color: '#f87171' }}>
+            {this.state.error?.message}
+          </pre>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem', color: '#94a3b8', marginTop: '1rem' }}>
+            {this.state.error?.stack}
+          </pre>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            style={{ marginTop: '1.5rem', padding: '0.5rem 1rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+`,
+  );
+
+  // Wrap <App /> in main.tsx with ErrorBoundary
+  const mainFile = next.find((f) => f.path === 'src/main.tsx');
+  if (mainFile && !mainFile.content.includes('ErrorBoundary')) {
+    let content = mainFile.content;
+    content = "import ErrorBoundary from './ErrorBoundary';\n" + content;
+    content = content.replace(
+      /(<App\s*\/>)/,
+      '<ErrorBoundary>\n      $1\n    </ErrorBoundary>',
+    );
+    next = upsertFile(next, 'src/main.tsx', content);
+  }
+
+  return next;
+}
+
 function ensureResponsiveGuards(files: GeneratedFile[], outputStack: OutputStack): GeneratedFile[] {
   const needOverflowGuard = !hasOverflowGuard(files);
   const needBreakpoints = !hasBreakpointSignals(files);
@@ -544,6 +610,9 @@ export function enforcePackagePolicy(files: GeneratedFile[], outputStack: Output
   nextFiles = ensureTailwindSyntax(nextFiles, outputStack);
   nextFiles = normalizeEsmConfigFiles(nextFiles, outputStack);
   nextFiles = ensureResponsiveGuards(nextFiles, outputStack);
+  if (outputStack === 'react-tailwind') {
+    nextFiles = ensureErrorBoundary(nextFiles);
+  }
 
   if (blocked.length > 0) {
     notes.push(`Strict allowlist blocked packages: ${blocked.join(', ')}`);

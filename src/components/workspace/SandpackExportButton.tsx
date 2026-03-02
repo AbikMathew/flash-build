@@ -31,11 +31,26 @@ export function SandpackExportButton({ metadata }: SandpackExportButtonProps) {
         if (!metadata) return;
 
         // Convert Sandpack files object { path: { code: string } } to ProjectFile[]
-        const files = Object.entries(sandpack.files).map(([path, file]) => ({
-            path: path.startsWith('/') ? path.substring(1) : path, // Remove leading slash
-            content: file.code,
-            language: 'typescript' // Default/inferred
-        }));
+        const files = Object.entries(sandpack.files)
+            .filter(([path]) => {
+                // Exclude Sandpack internal/template files
+                if (path.startsWith('/node_modules/')) return false;
+                if (path.startsWith('/node_modules')) return false;
+                return true;
+            })
+            .map(([path, file]) => {
+                const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+                const ext = cleanPath.split('.').pop()?.toLowerCase() ?? '';
+                const langMap: Record<string, string> = {
+                    html: 'html', css: 'css', js: 'javascript', jsx: 'jsx',
+                    ts: 'typescript', tsx: 'tsx', json: 'json', md: 'markdown',
+                };
+                return {
+                    path: cleanPath,
+                    content: file.code,
+                    language: langMap[ext] ?? 'plaintext',
+                };
+            });
 
         try {
             setIsExporting(true);
@@ -43,6 +58,7 @@ export function SandpackExportButton({ metadata }: SandpackExportButtonProps) {
             setIsExportDialogOpen(false);
         } catch (err) {
             console.error('Export failed:', err);
+            alert(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
             setIsExporting(false);
         }
