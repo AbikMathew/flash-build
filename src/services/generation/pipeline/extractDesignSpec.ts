@@ -122,14 +122,15 @@ Rules:
    - vanilla: direct browser execution (srcdoc-safe files)
    - react-tailwind: npm-runnable project suitable for Sandpack preview
 4) File plan must match outputStack:
-   - vanilla: index.html, styles.css, app.js
+   - vanilla: index.html, styles.css, index.js
    - react-tailwind: package.json, index.html, src/main.tsx, src/App.tsx, src/styles.css, src/components/*
    - Do NOT include tailwind.config.js or postcss.config.js (Tailwind runs via CDN in Sandpack)
 5) Responsive requirements are mandatory: viewport meta + mobile-first behavior with breakpoints at 375px, 768px, 1280px.
 6) Use exact-like color and spacing tokens where possible.
+7) CRITICAL CONTRAST RULE: The design spec MUST dictate explicitly light text (e.g. text-white or text-slate-200) for components that have dark backgrounds (e.g. bg-slate-900 or bg-black). Do not allow dark text on dark backgrounds.
 
 COMPONENT DETAIL (critical for quality):
-7) For each component, specify:
+8) For each component, specify:
    - name: component filename (e.g., 'Sidebar', 'TaskCard')
    - role: what it does and what it renders (be specific: '6 stat cards in 3x2 grid with icon, label, value, trend arrow')
    - states: all visual states (default, hover, active, loading, empty, error, collapsed, expanded)
@@ -189,9 +190,9 @@ function buildFallbackSpec(references: ReferenceBundle, outputStack: OutputStack
     { path: 'src/styles.css', purpose: 'Custom CSS and @keyframes (no Tailwind imports)' },
   ];
   const vanillaFilePlan: DesignSpec['filePlan'] = [
-    { path: 'index.html', purpose: 'Main markup and application mount points' },
-    { path: 'styles.css', purpose: 'Design tokens and component styling' },
-    { path: 'app.js', purpose: 'State, rendering, and event handlers' },
+    { path: 'index.html', purpose: 'Application entry point and structure' },
+    { path: 'styles.css', purpose: 'Global styles and Tailwind utility classes' },
+    { path: 'index.js', purpose: 'Main application logic and interactivity' },
   ];
 
   return {

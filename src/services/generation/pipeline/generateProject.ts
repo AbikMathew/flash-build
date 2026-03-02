@@ -44,7 +44,7 @@ Critical rules:
 4) Follow reference style tokens, spacing, and layout hierarchy with high visual fidelity.
 5) Do not include markdown or explanations outside file blocks. Do NOT wrap file content in code fences.
 6) Files required by outputStack:
-   - vanilla: index.html, styles.css, app.js
+   - vanilla: index.html, styles.css, index.js
    - react-tailwind: package.json, index.html, src/main.tsx, src/App.tsx, src/styles.css, src/components/* (as needed)
    - Do NOT include tailwind.config.js or postcss.config.js (Tailwind runs via CDN in the preview)
 7) Responsive baseline is mandatory:
@@ -78,6 +78,7 @@ Visual design standards (apply always — override ONLY when reference screensho
    - Use a cohesive, curated color palette — never generic red/blue/green
    - Default to a premium dark theme: slate-900/950 backgrounds, subtle border-slate-800 dividers
    - Accent colors via gradients: bg-gradient-to-r from-blue-500 to-violet-500 (or contextually appropriate)
+   - CRITICAL QUALITY RULE: Ensure readable contrast. If a background is dark (bg-slate-900, bg-black, etc.), the text MUST be light (text-white, text-slate-200). Never use dark text on a dark background.
    - Text hierarchy: text-white for primary, text-slate-300 for secondary, text-slate-500 for muted
 14) DEPTH & POLISH:
    - Cards/panels: bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl shadow-xl
@@ -191,7 +192,7 @@ function buildUserInput(params: GenerateProjectParams): string {
       '- src/styles.css (custom CSS only — NO Tailwind imports)',
       'Do NOT include tailwind.config.js or postcss.config.js',
     ].join('\n')
-    : 'Required vanilla files: index.html, styles.css, app.js';
+    : 'Required vanilla files: index.html, styles.css, index.js';
 
   const base = [
     `Output stack: ${params.outputStack}`,

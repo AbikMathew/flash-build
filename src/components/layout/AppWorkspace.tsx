@@ -41,6 +41,13 @@ import { createGenerator, getPreferredGeneratorType } from '@/services/generator
 import { PreviewService } from '@/services/preview/PreviewService';
 import { UploadedImage, WorkspaceView, AIConfig } from '@/types';
 import { TEST_TEMPLATE_FILES } from '@/services/preview/runtime/TestTemplate';
+import { YOUTUBE_CLONE_FIXTURE } from '@/services/preview/runtime/YouTubeCloneFixture';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export default function AppWorkspace() {
     const {
@@ -134,11 +141,20 @@ export default function AppWorkspace() {
         // ---- VANILLA projects (HTML/CSS/JS) ----
         if (!isReactProject) {
             const filesMap: Record<string, { code: string }> = {};
+            let hasIndexJs = false;
+
             for (const file of files) {
                 // Sandpack requires paths starting with /
                 const key = file.path.startsWith('/') ? file.path : `/${file.path}`;
                 filesMap[key] = { code: file.content };
+                if (key === '/index.js') hasIndexJs = true;
             }
+
+            // Prevent Sandpack's default vanilla boilerplate from crashing if AI generated app.js instead of index.js
+            if (!hasIndexJs) {
+                filesMap['/index.js'] = { code: '' };
+            }
+
             return filesMap;
         }
 
@@ -209,6 +225,21 @@ export default function AppWorkspace() {
                 code = code.replace(/from\s+['"]\.\/App\.tsx['"]/g, "from './App'");
                 // Fix: BrowserRouter → HashRouter (Sandpack doesn't support pushState routing)
                 code = code.replace(/BrowserRouter/g, 'HashRouter');
+
+                // Inject Error Boundary into the entry file
+                if (code.includes('<App') || code.includes('import App')) {
+                    const importStatement = `import ErrorBoundary from './ErrorBoundary';\n`;
+                    code = importStatement + code;
+
+                    // Carefully replace <App /> or <App> with <ErrorBoundary><App ...></ErrorBoundary>
+                    if (code.includes('<App />') || code.includes('<App/>')) {
+                        code = code.replace(/<App\s*\/>/g, '<ErrorBoundary><App /></ErrorBoundary>');
+                    } else if (code.includes('<App>')) {
+                        // For cases where <App> wraps other things, though less common for the root App
+                        code = code.replace(/<App>/g, '<ErrorBoundary><App>').replace(/<\/App>/g, '</App></ErrorBoundary>');
+                    }
+                }
+
                 // Fix: './index.css' stays as-is (we map src/index.css → /index.css)
                 filesMap['/index.tsx'] = { code };
                 continue;
@@ -236,10 +267,75 @@ export default function AppWorkspace() {
             // Fix router: BrowserRouter → HashRouter (BrowserRouter needs server-side URL handling, Sandpack doesn't have it)
             if (targetPath.endsWith('.tsx') || targetPath.endsWith('.jsx') || targetPath.endsWith('.ts') || targetPath.endsWith('.js')) {
                 code = code.replace(/BrowserRouter/g, 'HashRouter');
+
+                // Also inject Error Boundary into any file named index.tsx or main.tsx just in case it wasn't the entryFile
+                if (targetPath === '/index.tsx' || targetPath === '/main.tsx') {
+                    if (code.includes('<App') || code.includes('import App')) {
+                        const importStatement = `import ErrorBoundary from './ErrorBoundary';\n`;
+                        if (!code.includes('import ErrorBoundary')) {
+                            code = importStatement + code;
+
+                            if (code.includes('<App />') || code.includes('<App/>')) {
+                                code = code.replace(/<App\s*\/>/g, '<ErrorBoundary><App /></ErrorBoundary>');
+                            } else if (code.includes('<App>')) {
+                                code = code.replace(/<App>/g, '<ErrorBoundary><App>').replace(/<\/App>/g, '</App></ErrorBoundary>');
+                            }
+                        }
+                    }
+                }
             }
 
             filesMap[targetPath] = { code };
         }
+
+        // Add ErrorBoundary.tsx to the project files
+        filesMap['/ErrorBoundary.tsx'] = {
+            code: `import React, { Component, ErrorInfo, ReactNode } from 'react';
+
+interface Props { children?: ReactNode }
+interface State { hasError: boolean; error: Error | null; errorInfo: ErrorInfo | null }
+
+export default class ErrorBoundary extends Component<Props, State> {
+  public state: State = { hasError: false, error: null, errorInfo: null };
+
+  public static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error, errorInfo: null };
+  }
+
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Uncaught error:', error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  public render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
+          <div className="bg-slate-900 border border-red-900/50 rounded-xl p-8 max-w-2xl w-full shadow-2xl">
+            <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">⚠️</div>
+            <h1 className="text-2xl font-bold mb-2">Runtime Error</h1>
+            <p className="text-slate-400 mb-6">The application crashed while trying to render. This is usually caused by AI-generated code attempting to access undefined properties or passing incorrect props.</p>
+            
+            <div className="bg-black/50 rounded-lg p-4 mb-6 text-left overflow-x-auto border border-slate-800">
+              <p className="text-red-400 font-mono text-sm mb-2">{this.state.error?.toString()}</p>
+              <pre className="text-slate-500 text-xs font-mono whitespace-pre-wrap">{this.state.errorInfo?.componentStack}</pre>
+            </div>
+            
+            <button 
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="px-6 py-2.5 bg-white text-black font-semibold rounded-lg hover:bg-slate-200 transition-colors"
+            >
+              Try Again (Reset Error)
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+`
+        };
 
         // Always ensure index.html has the Tailwind CDN for React projects
         if (!filesMap['/index.html']) {
@@ -330,15 +426,15 @@ export default function AppWorkspace() {
         [activeFilePath, workspaceView, setStatus, clearEvents, setFiles, setPreviewHtml, addEvent, setActiveFile, setMetadata, setWorkspaceView],
     );
 
-    const handleLoadTest = useCallback(() => {
-        setFiles(TEST_TEMPLATE_FILES);
+    const handleLoadData = useCallback((fixtureFiles: typeof files, name: string) => {
+        setFiles(fixtureFiles);
         setActiveFile('src/App.tsx');
         setMetadata({
-            name: 'Test Template',
+            name,
             description: 'Hardcoded test template for debugging',
             framework: 'react-tailwind',
             createdAt: new Date(),
-            packageManifest: JSON.parse(TEST_TEMPLATE_FILES.find(f => f.path === 'package.json')?.content || '{}'),
+            packageManifest: JSON.parse(fixtureFiles.find(f => f.path === 'package.json')?.content || '{}'),
             runtimeHint: {
                 preferredRuntime: 'sandpack',
                 fallbackRuntime: 'remote',
@@ -351,6 +447,9 @@ export default function AppWorkspace() {
             setWorkspaceView('split');
         }
     }, [setFiles, setActiveFile, setMetadata, setStatus, setWorkspaceView, workspaceView]);
+
+    const handleLoadTest = useCallback(() => handleLoadData(TEST_TEMPLATE_FILES, 'Test Template'), [handleLoadData]);
+    const handleLoadYouTube = useCallback(() => handleLoadData(YOUTUBE_CLONE_FIXTURE, 'YouTube Clone'), [handleLoadData]);
 
     const viewButtons: { view: WorkspaceView; icon: React.ElementType; label: string }[] = [
         { view: 'code', icon: Code2, label: 'Code' },
@@ -420,14 +519,25 @@ export default function AppWorkspace() {
                         <SandpackExportButton metadata={metadata} />
 
                         {/* Test Load Button (Debug) */}
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-[10px] text-amber-500 gap-1 hidden md:flex"
-                            onClick={handleLoadTest}
-                        >
-                            Test
-                        </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-[10px] text-amber-500 gap-1 hidden md:flex"
+                                >
+                                    Fixtures
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={handleLoadTest}>
+                                    Load Validation Template
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={handleLoadYouTube}>
+                                    Load YouTube Clone
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
 
                         {/* Settings */}
                         <SettingsModal onConfigChange={setAiConfig} />
