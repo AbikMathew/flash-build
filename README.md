@@ -11,6 +11,9 @@ AI-powered web app generator. Describe what you want → get a working app with 
 - 👁️ **Live preview runtimes** — `srcdoc` for static apps, Sandpack for React/npm apps, remote fallback for heavy projects
 - 📦 **Dual export** — download full runnable project or `ui-only` package + integration manifest
 
+  
+![Website gif](https://github.com/user-attachments/assets/7c86e13b-1d62-4f3e-a527-f919ace29f05)
+
 ## Getting Started
 
 ```bash
