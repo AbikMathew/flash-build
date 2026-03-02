@@ -84,25 +84,40 @@ export class AIGenerator implements IGeneratorService {
             })
         );
 
-        // Call our API route
-        const response = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: input.prompt,
-                images,
-                urls: input.urls,
-                config: this.config,
-                outputStack: 'react-tailwind',
-                qualityMode: 'strict_visual',
-                previewRuntimePreference: 'auto',
-                exportMode: 'full-project',
-                constraints: {
-                    maxRetries: 1,
-                    maxCostUsd: 0.25,
-                },
-            }),
-        });
+        // Call our API route with a 7-minute timeout
+        // (the server pipeline can take 3-5 min for multi-step AI generation)
+        const fetchController = new AbortController();
+        const fetchTimeout = setTimeout(() => fetchController.abort(), 420_000); // 7 min
+
+        let response: Response;
+        try {
+            response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: input.prompt,
+                    images,
+                    urls: input.urls,
+                    config: this.config,
+                    outputStack: 'react-tailwind',
+                    qualityMode: 'strict_visual',
+                    previewRuntimePreference: 'auto',
+                    exportMode: 'full-project',
+                    constraints: {
+                        maxRetries: 1,
+                        maxCostUsd: 0.25,
+                    },
+                }),
+                signal: fetchController.signal,
+            });
+        } catch (err: unknown) {
+            clearTimeout(fetchTimeout);
+            if (err instanceof Error && err.name === 'AbortError') {
+                throw new Error('Generation timed out after 7 minutes. Try a simpler prompt or check your network connection.');
+            }
+            throw new Error(`Generation request failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        clearTimeout(fetchTimeout);
 
         if (!response.ok) {
             const error = await response.json();

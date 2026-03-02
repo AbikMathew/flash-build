@@ -21,6 +21,10 @@ import { validateOutput } from '@/services/generation/pipeline/validateOutput';
 import { validateRuntimeBuild } from '@/services/generation/pipeline/validateRuntimeBuild';
 import { enforcePackagePolicy } from '@/services/generation/pipeline/packagePolicy';
 
+// Allow up to 5 minutes for the multi-step AI generation pipeline
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
+
 interface NormalizedRequest extends GenerateAPIRequest {
   outputStack: OutputStack;
   qualityMode: QualityMode;

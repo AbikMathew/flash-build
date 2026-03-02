@@ -29,8 +29,8 @@ const PRICE_PER_MILLION: Record<AIProvider, { input: number; output: number }> =
 };
 
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
-  anthropic: 'claude-3-5-sonnet-20241022',
-  openai: 'gpt-4o-2024-11-20',
+  anthropic: 'claude-sonnet-4-20250514',
+  openai: 'gpt-4o',
 };
 
 export function getProviderLabel(provider: AIProvider): string {
@@ -60,20 +60,33 @@ export async function callAI(options: CallAIOptions): Promise<AIResult> {
   const userMessage = normalizeUserMessage(options.userContent);
 
   if (options.provider === 'anthropic') {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': options.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: options.model,
-        max_tokens: options.maxTokens,
-        system: options.systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 300_000); // 5 min timeout
+    let response: Response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': options.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: options.model,
+          max_tokens: options.maxTokens,
+          system: options.systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        }),
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      clearTimeout(timeout);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Anthropic API request timed out after 5 minutes. Try a simpler prompt or reduce max_tokens.');
+      }
+      throw new Error(`Anthropic API fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Anthropic API error (${response.status}): ${await response.text()}`);
@@ -118,14 +131,27 @@ export async function callAI(options: CallAIOptions): Promise<AIResult> {
     };
   }
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${options.apiKey}`,
-    },
-    body: JSON.stringify(openAIBody),
-  });
+  const oaiController = new AbortController();
+  const oaiTimeout = setTimeout(() => oaiController.abort(), 300_000); // 5 min timeout
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${options.apiKey}`,
+      },
+      body: JSON.stringify(openAIBody),
+      signal: oaiController.signal,
+    });
+  } catch (err: unknown) {
+    clearTimeout(oaiTimeout);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('OpenAI API request timed out after 5 minutes. Try a simpler prompt or reduce max_tokens.');
+    }
+    throw new Error(`OpenAI API fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  clearTimeout(oaiTimeout);
 
   if (!response.ok) {
     throw new Error(`OpenAI API error (${response.status}): ${await response.text()}`);
